@@ -11,7 +11,7 @@ use ratatui::widgets::{Block, Clear, List, ListItem, ListState, Paragraph, Wrap}
 use ratatui::Frame;
 use ratatui::Terminal;
 
-use crate::app::{App, InputMode, Screen, SearchFocus, SourceForm};
+use crate::app::{App, InputMode, ReaderMode, Screen, SearchFocus, SourceForm};
 
 const FOCUS_BORDER: Color = Color::Yellow;
 const IDLE_BORDER: Color = Color::DarkGray;
@@ -260,15 +260,21 @@ fn toc(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 fn reader(f: &mut Frame, app: &mut App, area: Rect) {
-    let heading = app
-        .toc_title(app.state().chapter.saturating_sub(1))
-        .map(str::to_string)
-        .unwrap_or_default();
+    let stealth = app.reader_mode() == ReaderMode::Stealth;
+    let heading = if stealth {
+        // 隐蔽模式下不画章节标题 —— 那行会直接暴露在看小说
+        String::new()
+    } else {
+        app.toc_title(app.state().chapter.saturating_sub(1))
+            .map(str::to_string)
+            .unwrap_or_default()
+    };
     let title = format!(
-        "{} 第 {} / {} 章",
+        "{} 第 {} / {} 章{}",
         clip(&app.display_book_name(), 26),
         app.state().chapter,
-        app.toc_len()
+        app.toc_len(),
+        if stealth { " · 隐蔽" } else { "" }
     );
     let block = Block::bordered()
         .title(format!(" {title} "))
@@ -289,17 +295,36 @@ fn reader(f: &mut Frame, app: &mut App, area: Rect) {
         )));
         lines.push(Line::default());
     }
-    for p in app.reader_paragraphs() {
-        for l in wrap(&p, width) {
-            lines.push(Line::from(Span::styled(l, Style::new().fg(NOVEL))));
+    let paragraphs = app.reader_paragraphs();
+    if stealth {
+        // 隐蔽模式：逐行画生成出来的 TS。`//` 注释行是正文（给亮色），
+        // 其余是代码（压暗）—— 一眼能从代码里认出小说，但整屏看着还是代码。
+        for raw in app.reader_lines() {
+            let is_prose = raw.trim_start().starts_with("//");
+            let style = if is_prose {
+                Style::new().fg(NOVEL)
+            } else {
+                Style::new().fg(CODE)
+            };
+            // 代码行按列硬折：缩进和括号位置有意义，按词折会读不成形
+            for l in wrap(&raw, width) {
+                lines.push(Line::from(Span::styled(l, style)));
+            }
         }
-        lines.push(Line::default());
+    } else {
+        for p in &paragraphs {
+            for l in wrap(p, width) {
+                lines.push(Line::from(Span::styled(l, Style::new().fg(NOVEL))));
+            }
+            lines.push(Line::default());
+        }
     }
-    if lines.is_empty() {
-        lines.push(Line::from(Span::styled(
+    // 隐蔽模式下没有正文时，那份 TS 里只有头注释 —— 别拿它冒充正文
+    if lines.is_empty() || paragraphs.is_empty() {
+        lines = vec![Line::from(Span::styled(
             "（这一章没有正文 —— 可能还在加载，或者书源的正文规则失效了）",
             Style::new().fg(FAINT),
-        )));
+        ))];
     }
 
     // 滚动夹取：`End` 用的是 u16::MAX，这里收到实际能滚到的位置
@@ -470,7 +495,7 @@ fn hints(f: &mut Frame, app: &App, area: Rect) {
             Screen::Search => "↑↓ 选结果   Enter 打开   b 加入书架   Tab 改关键字   Esc 回书架",
             Screen::Toc => "↑↓ 选章   Enter 阅读   g 跳章   R 重拉目录   Esc 返回",
             Screen::Reader => {
-                "↑↓ 滚动   n p 上下章   g 跳章   R 重拉目录   o 打开阅读页   Esc 回目录"
+                "↑↓ 滚动   n p 上下章   g 跳章   m 隐蔽/普通   R 重拉目录   Esc 回目录"
             }
             Screen::Sources => {
                 "↑↓ 选源   空格 开关   Enter 编辑   / 筛选   a 导入   d 删除   Esc 返回"

@@ -314,26 +314,20 @@ pub fn parse_steps(s: &str) -> Vec<Step> {
 ///
 /// 存在的理由是**自测**：`--script "g12\nnno"` 能把一条交互路径跑完并把
 /// 每帧屏幕打出来，不用人盯着终端敲。
+/// 只取按键、丢掉 `{wait:}` 的脚本解析（给只关心键序列的地方用）。
+///
+/// **必须走 [`parse_steps`]**，不能再抄一份 —— 之前这里是独立的第二个实现，
+/// 于是「`{S}` 这种单字符键被静默丢掉」那个 bug 在 `parse_steps` 里修好了，
+/// 这里是原样的，测试里写 `{m}` 一点反应都没有。
 pub fn parse_script(s: &str) -> Vec<Key> {
-    let mut out = Vec::new();
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '{' {
-            let mut name = String::new();
-            for n in chars.by_ref() {
-                if n == '}' {
-                    break;
-                }
-                name.push(n);
-            }
-            if let Some(k) = named_key(&name) {
-                out.push(k);
-            }
-            continue;
-        }
-        out.extend(parse_one_key(c));
-    }
-    out
+    parse_steps(s)
+        .into_iter()
+        .filter_map(|st| match st {
+            Step::Key(k) => Some(k),
+            // 键序列里没有「等」和「喂结果」这两说；调用方自己处理
+            Step::Wait(_) | Step::Feed(_) => None,
+        })
+        .collect()
 }
 
 /// 一个字符对应哪个键。
@@ -378,6 +372,32 @@ fn named_key(name: &str) -> Option<Key> {
 mod tests {
     use super::*;
 
+    /// 两个脚本解析器**必须**是同一套规则。
+    ///
+    /// 之前它们是两份独立实现，「单字符键被静默丢掉」的 bug 只在一份里修了，
+    /// 另一份照旧 —— 测试里写 `{m}` 毫无反应，查起来很费劲。
+    #[test]
+    fn both_script_parsers_agree() {
+        // `{m}` 这种单字符键两边都要认
+        assert_eq!(parse_script("{m}"), vec![Key::Char('m')]);
+        assert_eq!(
+            parse_steps("{m}"),
+            vec![Step::Key(Key::Char('m'))],
+            "parse_steps 也要认"
+        );
+        // 大写的、标点的
+        assert_eq!(parse_script("{S}"), vec![Key::Char('S')]);
+        assert_eq!(parse_script("{/}"), vec![Key::Char('/')]);
+        // 具名键
+        assert_eq!(parse_script("{enter}{tab}"), vec![Key::Enter, Key::Tab]);
+        // `{wait:}` 是解析器的扩展，键序列里丢掉
+        assert_eq!(
+            parse_script("{enter}{wait:100}{esc}"),
+            vec![Key::Enter, Key::Esc]
+        );
+        assert_eq!(parse_steps("{enter}{wait:100}").len(), 2);
+    }
+
     #[test]
     fn script_parses_plain_and_named_keys() {
         assert_eq!(parse_script("np"), vec![Key::Char('n'), Key::Char('p')]);
@@ -407,11 +427,11 @@ mod tests {
         assert_eq!(parse_script("\u{15}"), vec![Key::Ctrl('u')]);
         assert_eq!(parse_script("\u{3}"), vec![Key::Ctrl('c')]);
         assert_eq!(parse_script(""), Vec::<Key>::new());
-        // 认不出来的 `{...}` 直接丢掉，不能当成字符键乱按
-        assert_eq!(
-            parse_script("a{nonsense}b"),
-            vec![Key::Char('a'), Key::Char('b')]
-        );
+        // 认不出来的 `{...}` **炸出来**，不再静默丢掉。
+        // 丢掉的现象是「脚本里写了却没生效」，比报错难查得多。
+        // （多字符的名字也不能当成单字符键乱按 —— 那正是要拦住的。）
+        let bad = std::panic::catch_unwind(|| parse_script("a{nonsense}b"));
+        assert!(bad.is_err(), "未知按键名应当报错");
         // 没闭合的花括号要能吃完剩下的，不能死循环
         assert_eq!(parse_script("{down"), vec![Key::Down]);
     }

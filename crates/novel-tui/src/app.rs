@@ -11,6 +11,7 @@ use novel_core::demo;
 use novel_core::online::{Done, Job, Online};
 use novel_core::render::{Book, Chapter as RChapter};
 use novel_core::shelf::{Shelf, ShelfBook, SHELF_FILE};
+pub use novel_core::state::ReaderMode;
 use novel_core::state::Session;
 
 /// 键盘事件。自己定义而不是直接用 crossterm 的，是为了让逻辑和终端解耦、可测。
@@ -753,6 +754,47 @@ impl App {
     /// 和 `reader.novel` 不是一回事：那个文件是**渲染出来的 TS**（正文在 `//`
     /// 注释里，给编辑器看的）；这里给 TUI 显示的是同内容的纯文本。
     /// 两边都由同一份章节数据来，不会脱节。
+    /// 阅读屏要显示的行。
+    ///
+    /// 普通模式就是正文段落；**隐蔽模式**显示的是生成出来的 TypeScript
+    /// （正文在 `//` 注释里），也就是 `.novel/reader.novel` 那份内容 ——
+    /// 旁边有人时看着像在看代码。
+    pub fn reader_lines(&self) -> Vec<String> {
+        match self.state().mode {
+            ReaderMode::Normal => self.reader_paragraphs(),
+            ReaderMode::Stealth => self.rendered_source().lines().map(str::to_string).collect(),
+        }
+    }
+
+    /// 生成出来的那份 TS。没有正文时是空的。
+    pub fn rendered_source(&self) -> String {
+        if self.web_mode() {
+            return self.session.rendered().unwrap_or_default();
+        }
+        // 演示模式：`Session` 的 payload 是 Demo，rendered() 走的是 state 里那份
+        self.session.rendered().unwrap_or_default()
+    }
+
+    pub fn reader_mode(&self) -> ReaderMode {
+        self.state().mode
+    }
+
+    /// 切换显示模式，并立刻落盘（这是个会跟人很久的偏好，不该只在内存里）。
+    pub fn toggle_reader_mode(&mut self) {
+        let next = match self.state().mode {
+            ReaderMode::Normal => ReaderMode::Stealth,
+            ReaderMode::Stealth => ReaderMode::Normal,
+        };
+        self.state_mut().mode = next;
+        self.reader_scroll = 0;
+        self.status = match next {
+            ReaderMode::Normal => "普通模式：直接看正文".into(),
+            ReaderMode::Stealth => "隐蔽模式：装成 TypeScript，正文在注释里".into(),
+        };
+        self.persist();
+    }
+
+    /// 阅读屏现在的正文段落（隐蔽模式下仍然要用它来判空）。
     pub fn reader_paragraphs(&self) -> Vec<String> {
         if self.web_mode() {
             // 在线：正文在 session 的 payload 里
@@ -1014,6 +1056,8 @@ impl App {
             Key::Char('p') => self.step(-1),
             Key::Char('g') => self.input = Some((InputMode::Goto, String::new())),
             Key::Char('o') => self.open_in_os(),
+            // 显示模式切换：普通正文 ⇄ 伪装成代码
+            Key::Char('m') => self.toggle_reader_mode(),
             Key::Char('R') => self.reload_toc(),
             Key::Char('r') => match self.session.save_and_write() {
                 Ok(()) => self.status = "已重新渲染 .novel/reader.novel".into(),
@@ -2066,6 +2110,81 @@ mod tests {
     }
 
     // ── 书源屏 ──────────────────────────────────────────────
+
+    #[test]
+    fn m_toggles_the_reader_between_prose_and_disguised_code() {
+        let mut app = tmp("readermode");
+        app.go(Screen::Reader);
+        assert_eq!(app.reader_mode(), ReaderMode::Normal, "默认是普通模式");
+
+        // 普通模式：显示正文段落
+        let prose = app.reader_lines();
+        assert!(
+            prose.iter().any(|l| l.contains("推开门")),
+            "普通模式该直接看到正文：{prose:?}"
+        );
+        assert!(
+            !prose.iter().any(|l| l.trim_start().starts_with("export")),
+            "普通模式不该出现代码：{prose:?}"
+        );
+
+        app.handle(Key::Char('m'));
+        assert_eq!(app.reader_mode(), ReaderMode::Stealth);
+        assert!(app.status.contains("隐蔽"), "{}", app.status);
+
+        // 隐蔽模式：显示生成出来的 TS，正文在 `//` 注释里
+        let code = app.reader_lines();
+        assert!(
+            code.iter().any(|l| l.trim_start().starts_with("export")),
+            "隐蔽模式该看到代码：{code:?}"
+        );
+        assert!(
+            code.iter()
+                .any(|l| l.trim_start().starts_with("//") && l.contains("推开门")),
+            "正文应当在 `//` 注释里：{code:?}"
+        );
+
+        // 再按一次切回去
+        app.handle(Key::Char('m'));
+        assert_eq!(app.reader_mode(), ReaderMode::Normal);
+        assert!(app.reader_lines().iter().any(|l| l.contains("推开门")));
+    }
+
+    #[test]
+    fn the_reader_mode_survives_a_restart() {
+        // 这会跟人很久的偏好，不该只在内存里
+        let dir = std::env::temp_dir().join("novel-tui-mode-persist");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = dir.join("state.json");
+        let reader = dir.join("reader.novel");
+
+        let mut app = App::new(Session::open(&state, &reader));
+        app.go(Screen::Reader);
+        app.handle(Key::Char('m'));
+        assert_eq!(app.reader_mode(), ReaderMode::Stealth);
+
+        // 重开一个，读同一个 state.json
+        let app2 = App::new(Session::open(&state, &reader));
+        assert_eq!(
+            app2.reader_mode(),
+            ReaderMode::Stealth,
+            "重启之后应当还是隐蔽模式"
+        );
+    }
+
+    #[test]
+    fn an_old_state_file_without_the_mode_field_still_loads() {
+        // state.json 是长期存在的文件，加字段不能让老文件读不了
+        let dir = std::env::temp_dir().join("novel-tui-mode-old");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = dir.join("state.json");
+        std::fs::write(&state, r#"{"book":0,"chapter":2,"query":""}"#).unwrap();
+        let app = App::new(Session::open(&state, dir.join("reader.novel")));
+        assert_eq!(app.reader_mode(), ReaderMode::Normal);
+        assert_eq!(app.state().chapter, 2, "老字段还是要读到");
+    }
 
     #[test]
     fn opening_a_book_asks_for_the_cache_and_capital_r_forces_a_refresh() {

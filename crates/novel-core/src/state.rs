@@ -27,6 +27,29 @@ pub struct State {
     pub chapter: usize,
     /// 搜索关键字（空串表示还没搜过）。
     pub query: String,
+    /// 阅读页怎么显示（普通正文 / 伪装成代码）。跟着状态落盘，重启还保持。
+    #[serde(default)]
+    pub mode: ReaderMode,
+}
+
+/// 阅读页的显示模式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum ReaderMode {
+    /// 普通：就是正文段落。
+    #[default]
+    Normal,
+    /// 隐蔽：显示生成出来的 TypeScript，正文在 `//` 注释里 ——
+    /// 也就是 `.novel/reader.novel` 的内容。旁边有人时看着像在看代码。
+    Stealth,
+}
+
+impl ReaderMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            ReaderMode::Normal => "普通",
+            ReaderMode::Stealth => "隐蔽",
+        }
+    }
 }
 
 impl Default for State {
@@ -35,6 +58,7 @@ impl Default for State {
             book: 0,
             chapter: 1,
             query: String::new(),
+            mode: ReaderMode::Normal,
         }
     }
 }

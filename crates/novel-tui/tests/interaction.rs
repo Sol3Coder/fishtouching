@@ -17,7 +17,7 @@ use novel_core::crawl::{Chapter, Hit};
 use novel_core::online::{Done, Online};
 use novel_core::source::BookSource;
 use novel_core::state::Session;
-use novel_tui::app::{App, Key, Screen, SearchFocus};
+use novel_tui::app::{App, Key, ReaderMode, Screen, SearchFocus};
 use novel_tui::run::{parse_script, Driver, Step, Workers};
 use novel_tui::ui;
 
@@ -680,4 +680,38 @@ fn the_shelf_shows_a_hint_when_it_is_empty_but_sources_exist() {
     assert!(out.contains("按 / 搜索") || out.contains("按 /"), "{out}");
     // 有书源、书架空着时**不**塞演示书
     assert!(!out.contains("夜色渐浓"), "{out}");
+}
+
+/// 隐蔽模式：阅读屏显示生成出来的 TS，正文在 `//` 注释里。
+/// 走的是真实事件循环（`run::run`），不是直接调方法。
+#[test]
+fn the_reader_can_disguise_itself_as_typescript() {
+    let (app, frames) = run_script("stealth", "{enter}{enter}{m}", false);
+
+    assert_eq!(app.reader_mode(), ReaderMode::Stealth);
+    let frame = frames.last().expect("应当有帧");
+
+    // 内容区是代码
+    assert!(
+        frame.contains("export") || frame.contains("interface") || frame.contains("function"),
+        "隐蔽模式下该看到 TypeScript：\n{frame}"
+    );
+    // 正文在 `//` 注释里
+    assert!(
+        frame
+            .lines()
+            .any(|l| l.contains("//") && l.contains("推开门")),
+        "正文该以 `//` 注释的形式出现：\n{frame}"
+    );
+    // 标题栏要标出来现在是哪个模式，否则用户不知道怎么切回去
+    assert!(frame.contains("隐蔽"), "该标出当前模式：\n{frame}");
+
+    // 再按一次切回普通模式
+    let (app2, frames2) = run_script("stealth2", "{enter}{enter}{m}{m}", false);
+    assert_eq!(app2.reader_mode(), ReaderMode::Normal);
+    let frame2 = frames2.last().unwrap();
+    assert!(
+        !frame2.lines().any(|l| l.contains("export interface")),
+        "切回去之后不该还有代码：\n{frame2}"
+    );
 }

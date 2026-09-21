@@ -64,4 +64,4 @@ impl std::error::Error for Error {}
 pub type R<T> = Result<T, Error>;
 
 pub use render::{render, Book, Chapter};
-pub use state::{Session, State, READER_PATH, STATE_PATH};
+pub use state::{ReaderMode, Session, State, READER_PATH, STATE_PATH};
