@@ -1,0 +1,18 @@
+[package]
+name = "novel-tui"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "novel_tui"
+path = "src/lib.rs"
+
+[[bin]]
+name = "novel-tui"
+path = "src/main.rs"
+
+[dependencies]
+novel-core = { path = "../novel-core" }
+# ratatui 自带 crossterm（默认 feature）并从 `ratatui::crossterm` 再导出，
+# 所以不用单独再列一个 crossterm 依赖。
+ratatui = "0.30"

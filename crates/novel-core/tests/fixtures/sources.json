@@ -1,0 +1,279 @@
+[
+ {
+  "bookSourceComment": "",
+  "bookSourceGroup": "校验可用",
+  "bookSourceName": "🎉 顶点小说",
+  "bookSourceType": 0,
+  "bookSourceUrl": "https://www.ddyueshu.com",
+  "customOrder": 246,
+  "enabled": true,
+  "enabledCookieJar": true,
+  "enabledExplore": true,
+  "exploreUrl": "首页::https://www.ddyueshu.com/\n玄幻::https://www.ddyueshu.com/xuanhuanxiaoshuo/\n修真::https://www.ddyueshu.com/xiuzhenxiaoshuo/\n都市::https://www.ddyueshu.com/dushixiaoshuo/\n穿越::https://www.ddyueshu.com/chuanyuexiaoshuo/\n网游::https://www.ddyueshu.com/wangyouxiaoshuo/\n科幻::https://www.ddyueshu.com/kehuanxiaoshuo/\n全部::https://www.ddyueshu.com/xiaoshuodaquan/",
+  "lastUpdateTime": 1680512184065,
+  "respondTime": 4839,
+  "ruleBookInfo": {
+   "author": "id.info@tag.p.0@text",
+   "coverUrl": "id.fmimg@tag.img@src",
+   "init": "",
+   "intro": "id.intro@text",
+   "kind": "class.tag@class.blue@text",
+   "lastChapter": "class.update-text@text",
+   "name": "id.info@tag.h1@text",
+   "tocUrl": ""
+  },
+  "ruleContent": {
+   "content": "id.content@all##请记住本书首发域名：ddyueshu.com。顶点小说手机版阅读网址：m.ddyueshu.com",
+   "nextContentUrl": "class.bottem1@tag.a.2@href"
+  },
+  "ruleExplore": {
+   "bookList": "tag.li.!0:1:2:3:4:5:6:7:8:9",
+   "bookUrl": "tag.a@href",
+   "name": "tag.a@text"
+  },
+  "ruleSearch": {
+   "author": "",
+   "bookList": "tag.li.!0:1:2:3:4:5:6:7:8:9",
+   "bookUrl": "tag.a@href",
+   "checkKeyWord": "",
+   "name": "tag.a@text"
+  },
+  "ruleToc": {
+   "chapterList": "tag.dl@tag.dd.!0:1:2:3:4:5",
+   "chapterName": "tag.a@text",
+   "chapterUrl": "tag.a@href"
+  },
+  "searchUrl": "https://www.ddyueshu.com/xiaoshuodaquan/",
+  "weight": 0
+ },
+ {
+  "bookSourceComment": "",
+  "bookSourceGroup": "校验可用",
+  "bookSourceName": "盗墓笔记",
+  "bookSourceType": 0,
+  "bookSourceUrl": "http://www.daomubiji.com/",
+  "bookUrlPattern": "",
+  "customOrder": 814,
+  "enabled": true,
+  "enabledCookieJar": false,
+  "enabledExplore": true,
+  "exploreUrl": "",
+  "lastUpdateTime": 1685885363529,
+  "respondTime": 3723,
+  "ruleBookInfo": {
+   "intro": "class.focusbox-text@text",
+   "name": "h1@text"
+  },
+  "ruleContent": {
+   "content": "class.article-content@tag.p@textNodes"
+  },
+  "ruleExplore": {},
+  "ruleReview": {},
+  "ruleSearch": {
+   "author": "text##(|)",
+   "bookList": "class.container@tag.li!0",
+   "bookUrl": "tag.a@href",
+   "name": "class.menu-item@tag.a.0@text"
+  },
+  "ruleToc": {
+   "chapterList": "class.excerpts-wrapper@tag.a",
+   "chapterName": "tag.a@text",
+   "chapterUrl": "tag.a@href"
+  },
+  "searchUrl": "-",
+  "weight": 0
+ },
+ {
+  "bookSourceComment": "",
+  "bookSourceGroup": "校验可用",
+  "bookSourceName": "爱下书",
+  "bookSourceType": 0,
+  "bookSourceUrl": "http://m.aixiawx.com",
+  "customOrder": 998,
+  "enabled": true,
+  "enabledCookieJar": false,
+  "enabledExplore": true,
+  "lastUpdateTime": 1601978425149,
+  "respondTime": 1972,
+  "ruleBookInfo": {
+   "author": "class.tab@tag.p.0@text",
+   "coverUrl": "class.tu@img@src",
+   "intro": "tag.p.7@text",
+   "kind": "class.tab1@tag.p.0@text&&class.info_chapters@tag.p.0@text##最新章节|更新：| ",
+   "lastChapter": "class.tab@tag.p.2@text",
+   "name": "class.nav_name@h1@text",
+   "wordCount": "class.tab1@tag.p.2@text"
+  },
+  "ruleContent": {
+   "content": "class.novelcontent@textNodes",
+   "nextContentUrl": "text.下一页@href"
+  },
+  "ruleExplore": {},
+  "ruleSearch": {
+   "author": "tag.a.2@text",
+   "bookList": "class.search_list@tag.p",
+   "bookUrl": "tag.a.0@href",
+   "kind": "tag.a.1@text",
+   "name": "tag.a.0@text"
+  },
+  "ruleToc": {
+   "chapterList": "class.p2.3@li",
+   "chapterName": "a@text",
+   "chapterUrl": "a@href",
+   "nextTocUrl": "text.下一页@href"
+  },
+  "searchUrl": "http://m.aixiawx.com/s.php?s={key}&type=articlename",
+  "weight": 0
+ },
+ {
+  "bookSourceComment": "",
+  "bookSourceGroup": "校验可用",
+  "bookSourceName": "📚 盗墓笔记",
+  "bookSourceType": 0,
+  "bookSourceUrl": "http://www.daomubiji.com",
+  "bookUrlPattern": "",
+  "customOrder": 1407,
+  "enabled": true,
+  "enabledCookieJar": false,
+  "enabledExplore": true,
+  "exploreUrl": "盗墓笔记::http://www.daomubiji.com/",
+  "lastUpdateTime": 1673567305423,
+  "respondTime": 16616,
+  "ruleBookInfo": {
+   "intro": "class.focusbox-text@text"
+  },
+  "ruleContent": {
+   "content": "class.article-content@tag.p@text"
+  },
+  "ruleExplore": {},
+  "ruleReview": {},
+  "ruleSearch": {
+   "author": "text##(|)",
+   "bookList": "class.container@tag.li!0",
+   "bookUrl": "tag.a@href",
+   "name": "class.menu-item@tag.a.0@text"
+  },
+  "ruleToc": {
+   "chapterList": "class.excerpts-wrapper@tag.a",
+   "chapterName": "tag.a@text",
+   "chapterUrl": "tag.a@href"
+  },
+  "searchUrl": "-",
+  "weight": 0
+ },
+ {
+  "bookSourceComment": "",
+  "bookSourceGroup": "",
+  "bookSourceName": "盗墓笔记",
+  "bookSourceType": 0,
+  "bookSourceUrl": "http://www.daomubiji.com/",
+  "bookUrlPattern": "",
+  "customOrder": 59,
+  "enabled": true,
+  "enabledCookieJar": false,
+  "enabledExplore": true,
+  "exploreUrl": "",
+  "lastUpdateTime": 1685885363529,
+  "respondTime": 1629,
+  "ruleBookInfo": {
+   "intro": "class.focusbox-text@text",
+   "name": "h1@text"
+  },
+  "ruleContent": {
+   "content": "class.article-content@tag.p@textNodes"
+  },
+  "ruleExplore": {},
+  "ruleReview": {},
+  "ruleSearch": {
+   "author": "text##(|)",
+   "bookList": "class.container@tag.li!0",
+   "bookUrl": "tag.a@href",
+   "name": "class.menu-item@tag.a.0@text"
+  },
+  "ruleToc": {
+   "chapterList": "class.excerpts-wrapper@tag.a",
+   "chapterName": "tag.a@text",
+   "chapterUrl": "tag.a@href"
+  },
+  "searchUrl": "-",
+  "weight": 0
+ },
+ {
+  "bookSourceComment": "",
+  "bookSourceGroup": "已检验",
+  "bookSourceName": "爱下书",
+  "bookSourceType": 0,
+  "bookSourceUrl": "http://m.aixiawx.com",
+  "customOrder": 1293,
+  "enabled": true,
+  "enabledCookieJar": false,
+  "enabledExplore": false,
+  "lastUpdateTime": 1601978425149,
+  "respondTime": 1805,
+  "ruleBookInfo": {
+   "author": "class.tab@tag.p.0@text",
+   "coverUrl": "class.tu@img@src",
+   "intro": "tag.p.7@text",
+   "kind": "class.tab1@tag.p.0@text&&class.info_chapters@tag.p.0@text##最新章节|更新：| ",
+   "lastChapter": "class.tab@tag.p.2@text",
+   "name": "class.nav_name@h1@text",
+   "wordCount": "class.tab1@tag.p.2@text"
+  },
+  "ruleContent": {
+   "content": "class.novelcontent@textNodes",
+   "nextContentUrl": "text.下一页@href"
+  },
+  "ruleExplore": {},
+  "ruleSearch": {
+   "author": "tag.a.2@text",
+   "bookList": "class.search_list@tag.p",
+   "bookUrl": "tag.a.0@href",
+   "kind": "tag.a.1@text",
+   "name": "tag.a.0@text"
+  },
+  "ruleToc": {
+   "chapterList": "class.p2.3@li",
+   "chapterName": "a@text",
+   "chapterUrl": "a@href",
+   "nextTocUrl": "text.下一页@href"
+  },
+  "searchUrl": "http://m.aixiawx.com/s.php?s={key}&type=articlename",
+  "weight": 0
+ },
+ {
+  "bookSourceComment": "",
+  "bookSourceGroup": "⭐️小说",
+  "bookSourceName": "📚 盗墓笔记",
+  "bookSourceType": 0,
+  "bookSourceUrl": "http://www.daomubiji.com",
+  "bookUrlPattern": "",
+  "customOrder": 1724,
+  "enabled": true,
+  "enabledCookieJar": false,
+  "enabledExplore": true,
+  "exploreUrl": "盗墓笔记::http://www.daomubiji.com/",
+  "lastUpdateTime": 1673567305423,
+  "respondTime": 2573,
+  "ruleBookInfo": {
+   "intro": "class.focusbox-text@text"
+  },
+  "ruleContent": {
+   "content": "class.article-content@tag.p@text"
+  },
+  "ruleExplore": {},
+  "ruleReview": {},
+  "ruleSearch": {
+   "author": "text##(|)",
+   "bookList": "class.container@tag.li!0",
+   "bookUrl": "tag.a@href",
+   "name": "class.menu-item@tag.a.0@text"
+  },
+  "ruleToc": {
+   "chapterList": "class.excerpts-wrapper@tag.a",
+   "chapterName": "tag.a@text",
+   "chapterUrl": "tag.a@href"
+  },
+  "searchUrl": "-",
+  "weight": 0
+ }
+]

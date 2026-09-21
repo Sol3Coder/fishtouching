@@ -1,0 +1,13 @@
+/target
+/.novel/state.json
+/.novel/reader.novel
+/.novel/sources.json
+/.novel/shelf.json
+/.novel/toc/
+
+# 第三方参考项目（legado 源码，30 MB）—— 只读参考，不是我们的代码
+/reference
+
+# 抓来的书源集合（21 MB，含三方 token）—— 只用来复现覆盖率统计，
+# 测试用的是 crates/novel-core/tests/fixtures/ 里的小夹具
+/fixtures/

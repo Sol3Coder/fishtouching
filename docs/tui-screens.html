@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>终端小说阅读器 · 五屏交互稿</title>
+<style>
+body { background-color: black; color: white; font-family: "Cascadia Mono", "Noto Sans Mono CJK SC", "Sarasa Mono SC", Consolas, monospace; }
+pre { font-family: "Cascadia Mono", "Noto Sans Mono CJK SC", "Sarasa Mono SC", Consolas, monospace; font-size: 18px; font-variant-ligatures: none; line-height: 1.35; }
+h1, h2 { font-family: inherit; font-size: 18px; }
+.secondary { color: silver; }
+.focus { color: yellow; }
+.key { color: aqua; }
+</style>
+</head>
+<body>
+<h1 data-od-id="document-title">终端小说阅读器 / 五屏交互稿</h1>
+<p class="secondary" data-od-id="terminal-legend">80列 × 24行 · 中文占2列 · 亮白：正文 · 灰：次要 · 黄：焦点 · 青：按键</p>
+<p class="secondary" data-od-id="prototype-note">静态终端稿，五屏纵向展示用于评审；实际程序每次只显示一屏。所有进度与书源均为演示。</p>
+<h2 data-od-id="heading-bookshelf">01 书架</h2>
+<pre data-od-id="screen-bookshelf" aria-label="01 书架，80列24行"><span class="secondary">┌──────────────────────────────────────────────────────────────────────────────┐</span>
+│01 书架                                                                       │
+<span class="secondary">│ 位置：书架                                      打开书籍后自动收录           │</span>
+<span class="secondary">├──────────────────────────────────────────────────────────────────────────────┤</span>
+│ 在读书籍                         阅读位置                    最近打开        │
+│                                                                              │
+<span class="focus">│&gt; 三国演义                       第 27 / 120 章             本次会话          │</span>
+│  西游记                         第  8 / 100 章             本次会话          │
+│  红楼梦                         第  1 / 120 章             本次会话          │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│ Enter 进入目录，并选中上次阅读章节。                                         │
+│                                                                              │
+│ d 只移出书架，保留阅读位置；再次打开会重新收录。                             │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│ 演示数据：书籍、进度与会话状态仅用于说明交互。                               │
+<span class="secondary">├──────────────────────────────────────────────────────────────────────────────┤</span>
+<span class="secondary">│ 就绪 | 3 本 | 选中 1 / 3 | 焦点：书籍列表                                    │</span>
+│ <span class="key">[↑↓/jk]</span>选择 <span class="key">[Enter]</span>目录 <span class="key">[/]</span>搜索 <span class="key">[s]</span>书源 <span class="key">[d]</span>移出 <span class="key">[F1]</span>帮助 <span class="key">[q]</span>退出             │
+<span class="secondary">└──────────────────────────────────────────────────────────────────────────────┘</span></pre>
+<h2 data-od-id="heading-search">02 搜索</h2>
+<pre data-od-id="screen-search" aria-label="02 搜索，80列24行"><span class="secondary">┌──────────────────────────────────────────────────────────────────────────────┐</span>
+│02 搜索                                                                       │
+<span class="secondary">│ 位置：书架 &gt; 搜索                               Tab 切换输入与结果           │</span>
+<span class="secondary">├──────────────────────────────────────────────────────────────────────────────┤</span>
+│ 关键词：三国                                                                 │
+│ [Enter]执行搜索   [Tab]进入结果                  输入焦点时显示光标          │
+│──────────────────────────────────────────────────────────────────────────────│
+│ 搜索结果                         作者             书源          书架         │
+<span class="focus">│&gt; 三国演义                       罗贯中           书源 001      [已加入]      │</span>
+│  三国演义                       罗贯中           书源 002      [未加入]      │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│ 演示结果：书源名称为脱敏编号，不代表真实可用服务。                           │
+<span class="secondary">├──────────────────────────────────────────────────────────────────────────────┤</span>
+<span class="secondary">│ 已完成 | 2 条 | 已返回 2 / 2 个启用源 | 焦点：结果列表                       │</span>
+│ <span class="key">[Tab]</span>关键词 <span class="key">[↑↓/jk]</span>选择 <span class="key">[Enter]</span>目录 <span class="key">[b]</span>加入书架 <span class="key">[Esc]</span>书架 <span class="key">[F1]</span>帮助           │
+<span class="secondary">└──────────────────────────────────────────────────────────────────────────────┘</span></pre>
+<h2 data-od-id="heading-contents">03 目录</h2>
+<pre data-od-id="screen-contents" aria-label="03 目录，80列24行"><span class="secondary">┌──────────────────────────────────────────────────────────────────────────────┐</span>
+│03 目录                                                                       │
+<span class="secondary">│ 位置：书架 &gt; 目录 &gt; 三国演义                    返回目标：书架               │</span>
+<span class="secondary">├──────────────────────────────────────────────────────────────────────────────┤</span>
+│ 章节目录                                              阅读记录：第 27 章     │
+│                                                                              │
+│  第 24 章                                             [已读]                 │
+│  第 25 章                                             [已读]                 │
+│  第 26 章                                             [已读]                 │
+<span class="focus">│&gt; 第 27 章                                             [上次阅读]             │</span>
+│  第 28 章                                             [未读]                 │
+│  第 29 章                                             [未读]                 │
+│  第 30 章                                             [未读]                 │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│ 演示：省略章名以展示定位；实际列表显示源站章名。                             │
+<span class="secondary">├──────────────────────────────────────────────────────────────────────────────┤</span>
+<span class="secondary">│ 就绪 | 120 章 | 选中 27 / 120 | 焦点：章节列表                               │</span>
+│ <span class="key">[↑↓/jk]</span>选择 <span class="key">[PgUp/Dn]</span>翻页 <span class="key">[Home/End]</span>首末 <span class="key">[g]</span>跳章 <span class="key">[Enter]</span>阅读 <span class="key">[Esc]</span>书架       │
+<span class="secondary">└──────────────────────────────────────────────────────────────────────────────┘</span></pre>
+<h2 data-od-id="heading-reader">04 阅读</h2>
+<pre data-od-id="screen-reader" aria-label="04 阅读，80列24行"><span class="secondary">┌──────────────────────────────────────────────────────────────────────────────┐</span>
+│04 阅读                                                                       │
+<span class="secondary">│ 位置：书架 &gt; 目录 &gt; 阅读                        三国演义 / 第 27 章          │</span>
+<span class="secondary">├──────────────────────────────────────────────────────────────────────────────┤</span>
+│ 第二十七回  美髯公千里走单骑  汉寿侯五关斩六将                               │
+│                                                                              │
+│  本区域为正文排版示例，不是原著第二十七回的实际文字。                        │
+│  小说正文按终端显示列折行，中文按两列，英文与数字按一列。                    │
+│                                                                              │
+│  阅读时只有正文拥有焦点，不在同屏加入目录或书架侧栏。                        │
+│  上下键逐行滚动，翻页键移动一个视口并保留一行上下文。                        │
+│                                                                              │
+│  页面底部始终留出状态与按键提示，不让正文覆盖它们。                          │
+│  到达章末后保持当前位置，按 n 进入下一章，不自动跨章。                       │
+│                                                                              │
+│  返回目录时保留本章位置，再次进入继续阅读，不回到开头。                      │
+│  搜索进入的书，也会在成功打开目录后自动出现在书架。                          │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+<span class="secondary">├──────────────────────────────────────────────────────────────────────────────┤</span>
+<span class="secondary">│ 就绪 | 第 27 / 120 章 | 第 1–14 / 86 行 | 焦点：正文 | 位置已保存            │</span>
+│ <span class="key">[↑↓/jk]</span>滚动 <span class="key">[PgUp/Dn]</span>翻页 <span class="key">[Home/End]</span>章首末 <span class="key">[n/p]</span>换章 <span class="key">[g]</span>跳章 <span class="key">[Esc]</span>目录       │
+<span class="secondary">└──────────────────────────────────────────────────────────────────────────────┘</span></pre>
+<h2 data-od-id="heading-sources">05 书源</h2>
+<pre data-od-id="screen-sources" aria-label="05 书源，80列24行"><span class="secondary">┌──────────────────────────────────────────────────────────────────────────────┐</span>
+│05 书源                                                                       │
+<span class="secondary">│ 位置：书架 &gt; 书源                               Space 切换启用状态           │</span>
+<span class="secondary">├──────────────────────────────────────────────────────────────────────────────┤</span>
+│ 启用  书源名称                    网址                         搜索          │
+<span class="focus">│&gt; [x]  书源 001                    https://source.invalid/01    已配置        │</span>
+│  [x]  书源 002                    https://source.invalid/02    已配置        │
+│  [ ]  书源 003                    https://source.invalid/03    未配置        │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│ Enter 编辑名字、网址、搜索网址；不在列表直接输入。                           │
+│ 演示书源：.invalid 是示意地址，不执行联网或脚本。                            │
+<span class="secondary">├──────────────────────────────────────────────────────────────────────────────┤</span>
+<span class="secondary">│ 就绪 | 3 条 | 已启用 2 条 | 选中 1 / 3 | 焦点：书源列表                      │</span>
+│ <span class="key">[↑↓/jk]</span>选择 <span class="key">[Space]</span>开关 <span class="key">[Enter]</span>编辑 <span class="key">[a]</span>导入 <span class="key">[d]</span>删除 <span class="key">[/]</span>筛选 <span class="key">[Esc]</span>书架        │
+<span class="secondary">└──────────────────────────────────────────────────────────────────────────────┘</span></pre>
+</body>
+</html>

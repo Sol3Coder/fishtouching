@@ -1,0 +1,21 @@
+[workspace]
+resolver = "2"
+members = ["crates/novel-core", "crates/novel-tui"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+tl = "0.7"
+encoding_rs = "0.8"
+ureq = "3"
+rquickjs = { version = "0.14", default-features = false, features = ["std", "array-buffer", "properties"] }
+base64 = "0.23"
+md-5 = "0.11"
+sha1 = "0.11"
+sha2 = "0.11"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
