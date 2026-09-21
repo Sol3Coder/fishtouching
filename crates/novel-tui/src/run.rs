@@ -154,8 +154,12 @@ where
     // 循环就会立刻返回 —— 表现是「脚本只执行了第一个键」，
     // 而报错看起来像是功能坏了，很难查到是测试台的问题。
     app.quit = false;
+    // 单调时钟。**由循环喂给界面**（界面不自己读表），这样「过了多久」这件事
+    // 在测试里是可控的 —— 隐蔽模式的「闲置就藏正文」全靠它。
+    let started = std::time::Instant::now();
 
     loop {
+        app.tick(started.elapsed().as_millis() as u64);
         workers.pump(app);
         draw(app)?;
         if let Some(key) = next(app)? {

@@ -37,8 +37,12 @@ pub enum Key {
 
 /// 当前在哪一屏。
 ///
-/// **同一时刻只显示一个** —— 不是并列的面板。书架 →（Enter）→ 目录 →（Enter）→
-/// 阅读，Esc 逐层退回；搜索和书源是另外两屏，从书架进。
+/// **同一时刻只显示一个**，而且五个屏**平级** —— 谁也不在谁「里面」，
+/// 没有父子关系，也就没有「退回上一层」。数字键直接跳过去，
+/// Enter 在有意义的地方切到另一屏（打开书 → 目录，选章 → 阅读）。
+///
+/// 早先做过层级版（书架 › 目录 › 阅读，Esc 逐层退回）。那样「我在哪一层」
+/// 和「Esc 会去哪」都得靠面包屑解释 —— 平级之后这两个问题都不存在了。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
     /// 书架：在读的书
@@ -52,6 +56,28 @@ pub enum Screen {
     /// 书源管理
     Sources,
 }
+
+impl Screen {
+    /// 屏的名字（标签栏上显示的就是它）。
+    pub fn label(self) -> &'static str {
+        match self {
+            Screen::Shelf => "书架",
+            Screen::Search => "搜索",
+            Screen::Toc => "目录",
+            Screen::Reader => "阅读",
+            Screen::Sources => "书源",
+        }
+    }
+}
+
+/// 五个屏的固定顺序。**下标 + 1 就是它的数字键。**
+pub const SCREENS: [Screen; 5] = [
+    Screen::Shelf,
+    Screen::Search,
+    Screen::Toc,
+    Screen::Reader,
+    Screen::Sources,
+];
 
 /// 搜索页里键盘归谁：关键字框还是结果列表。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -98,6 +124,12 @@ pub enum InputMode {
     /// 筛选书源列表（名字或网址）
     Filter,
 }
+
+/// 隐蔽模式下，多久没输入就把正文藏起来。
+///
+/// 15 秒：够读完一屏的时间不长不短 —— 太短会一直闪，太长则「停下来看」
+/// 的时候正文还明晃晃摆在那儿。任何按键都会立刻显示回来。
+pub const STEALTH_IDLE_MS: u64 = 15_000;
 
 /// 从一个 URL 里取域名。取不到就是空串。
 ///
@@ -199,7 +231,6 @@ pub struct App {
     /// 当前在哪一屏。
     pub screen: Screen,
     /// 返回栈：Esc 弹一层。
-    back: Vec<Screen>,
     /// 搜索页里键盘归谁。
     pub search_focus: SearchFocus,
     /// 书架 / 搜索结果列表的光标。
@@ -212,6 +243,16 @@ pub struct App {
     pub input: Option<(InputMode, String)>,
     /// `Some` 表示正在编辑某个书源（三字段表单）。
     pub form: Option<SourceForm>,
+    /// 事件循环喂进来的当前时刻（毫秒）。界面**不自己读表** ——
+    /// 时钟从外面喂进来，测试才好控制「过了多久」。
+    pub now_ms: u64,
+    /// 最后一次有输入的时刻。用来算「多久没动静了」。
+    pub last_input_ms: u64,
+    /// 隐蔽模式下，多久没输入就把正文藏起来（毫秒）。
+    ///
+    /// 做成字段而不是直接用常量，是为了让测试能把它调小 ——
+    /// 否则测一次要真等十几秒。
+    pub idle_hide_ms: u64,
     /// 书源列表的筛选条件（已应用的）。空 = 不过滤。
     ///
     /// 默认书源集合有三千多个，没有筛选这一屏就没法用 —— 只能按住下键翻。
@@ -252,7 +293,6 @@ impl App {
             session,
             shelf,
             screen: Screen::Shelf,
-            back: Vec::new(),
             search_focus: SearchFocus::Input,
             shelf_cursor: 0,
             toc_cursor: 0,
@@ -260,6 +300,9 @@ impl App {
             reader_scroll: 0,
             input: None,
             form: None,
+            now_ms: 0,
+            last_input_ms: 0,
+            idle_hide_ms: STEALTH_IDLE_MS,
             sources_filter: String::new(),
             status: String::new(),
             help: false,
@@ -434,30 +477,32 @@ impl App {
         self.rows().into_iter().nth(self.cursor())
     }
 
-    /// 导航路径，画在标题栏下面那一行。
+    /// 标签栏：五个平级的屏，当前那个标出来。
     ///
-    /// 存在的理由：一屏一屏地走之后，「我在哪、Esc 会回到哪」必须一眼看得见 ——
-    /// 否则用户会迷路（这正是并列面板不会有的问题）。
-    pub fn breadcrumb(&self) -> String {
-        let mut parts: Vec<String> = self.back.iter().map(|s| self.screen_label(*s)).collect();
-        parts.push(self.screen_label(self.screen));
-        parts.join(" › ")
+    /// 它替换掉了原来的面包屑。面包屑解释的是「我在层级里的哪一层、Esc 回哪」；
+    /// 五屏平级之后没有层，只有「有哪些屏、我在哪个」，以及「按几能跳过去」。
+    pub fn tabs(&self) -> Vec<(usize, &'static str, bool)> {
+        SCREENS
+            .iter()
+            .enumerate()
+            .map(|(i, s)| (i + 1, s.label(), *s == self.screen))
+            .collect()
     }
 
-    fn screen_label(&self, s: Screen) -> String {
-        match s {
-            Screen::Shelf => "书架".to_string(),
-            Screen::Search => {
-                let q = self.state().query.trim();
-                if q.is_empty() {
-                    "搜索".to_string()
-                } else {
-                    format!("搜索 “{q}”")
-                }
-            }
-            Screen::Toc => format!("目录 · {}", self.display_book_name()),
-            Screen::Reader => format!("阅读 · 第 {} / {} 章", self.state().chapter, self.toc_len()),
-            Screen::Sources => format!("书源（{} 个）", self.source_len()),
+    /// 当前屏的补充信息（标签栏右边那一小段）。
+    pub fn screen_detail(&self) -> String {
+        match self.screen {
+            Screen::Shelf => match self.rows().len() {
+                0 => String::new(),
+                n => format!("{n} 本"),
+            },
+            Screen::Search => match self.state().query.trim() {
+                "" => String::new(),
+                q => format!("“{q}”"),
+            },
+            Screen::Toc => format!("{} · {} 章", self.display_book_name(), self.toc_len()),
+            Screen::Reader => format!("第 {} / {} 章", self.state().chapter, self.toc_len()),
+            Screen::Sources => format!("{} 个", self.source_len()),
         }
     }
 
@@ -775,6 +820,31 @@ impl App {
         self.session.rendered().unwrap_or_default()
     }
 
+    /// 隐蔽模式下，正文现在该不该显示。
+    ///
+    /// 判据只有「距上次输入多久」这一个 —— 一开始多写了个 `revealed` 标志，
+    /// 结果它和计时是**或**的关系，于是永远盖住计时（标志没人清）。
+    /// 只留时间戳，一条真相。
+    pub fn prose_visible(&self) -> bool {
+        if self.state().mode != ReaderMode::Stealth {
+            return true;
+        }
+        self.now_ms.saturating_sub(self.last_input_ms) < self.idle_hide_ms
+    }
+
+    /// 事件循环每轮调一次（**哪怕没有按键**）—— 让它有机会把正文藏起来。
+    ///
+    /// 时钟从外面传进来而不是在这里 `Instant::now()`：那样测试就只能靠
+    /// `sleep` 来验证「过一会儿会藏」，慢且不稳。
+    pub fn tick(&mut self, now_ms: u64) {
+        self.now_ms = now_ms.max(self.now_ms);
+    }
+
+    /// 有输入了 —— 隐蔽模式下正文重新露出来（把闲置计时清零）。
+    fn note_input(&mut self) {
+        self.last_input_ms = self.now_ms;
+    }
+
     pub fn reader_mode(&self) -> ReaderMode {
         self.state().mode
     }
@@ -816,6 +886,8 @@ impl App {
     /// 敲 `q` 直接退出、敲 `b` 收藏、敲数字开关书源。这套优先级来自一份
     /// 交互设计评审（见 DESIGN.md 第 4 节）。
     pub fn handle(&mut self, key: Key) {
+        // 任何输入都算「有人在」—— 隐蔽模式下正文立刻露出来
+        self.note_input();
         // Ctrl-C 是唯一在任何模式里都保留的键：输入到一半也要能退出去
         if key == Key::Ctrl('c') {
             self.quit = true;
@@ -847,27 +919,34 @@ impl App {
     }
 
     /// 进另一屏。Esc 会退回这里。
+    /// 切到另一屏。
+    ///
+    /// **不是「进下一层」** —— 五屏平级，切过去就完了，没有返回栈。
+    /// （之前是层级的：书架 › 目录 › 阅读，Esc 逐层退回。那样「我在哪一层」
+    /// 和「Esc 会去哪」都得靠面包屑解释；现在五个屏各自独立、直接跳。）
     pub fn go(&mut self, screen: Screen) {
         if self.screen == screen {
             return;
         }
-        self.back.push(self.screen);
         self.screen = screen;
-        self.status.clear();
-    }
-
-    /// 退回上一屏。没有上一层就回书架。
-    pub fn go_back(&mut self) {
-        self.screen = self.back.pop().unwrap_or(Screen::Shelf);
         self.status.clear();
     }
 
     fn handle_normal(&mut self, key: Key) {
         match key {
-            // `q` **只在根书架**退出。别的屏上它是本屏命令的一部分
-            //（在书源屏里也可能是别的东西），全局退出只留 Ctrl-C。
-            Key::Char('q') if self.screen == Screen::Shelf => {
+            // `q` 全局退出，哪一屏都行。
+            // （输入框 / 表单里它是**文本** —— 那条优先级在 `handle` 里排在
+            //  前面，所以「在搜索框里打 q」不会退出。）
+            Key::Char('q') => {
                 self.quit = true;
+                return;
+            }
+            // 数字键直接跳屏 —— 「独立进入」最直白的表达
+            Key::Char(c @ '1'..='9') => {
+                let i = c as usize - '1' as usize;
+                if let Some(target) = SCREENS.get(i).copied() {
+                    self.go(target);
+                }
                 return;
             }
             // `?` 是帮助的便利别名（输入焦点下它是文本，这里到不了）
@@ -890,18 +969,21 @@ impl App {
         }
     }
 
-    /// Esc：逐层退回。最外层（书架）只清状态栏。
+    /// Esc：关掉最内层的临时模式（那几条在 `handle` 里已经先处理了），
+    /// 都没有的话就**回书架**。
+    ///
+    /// 回书架是个固定的「家」，不是「退回上一层」—— 五屏平级，没有上一层。
     fn esc(&mut self) {
         if self.screen == Screen::Shelf {
             self.status.clear();
             return;
         }
-        // 从搜索页退出去时把结果收起来 —— 它们是临时的
+        // 从搜索页走开时把结果收起来 —— 它们是临时的
         if self.screen == Screen::Search {
             self.web_hits = None;
             self.search_focus = SearchFocus::Input;
         }
-        self.go_back();
+        self.go(Screen::Shelf);
     }
 
     /// 列表里通用的上下移动。
@@ -1566,7 +1648,6 @@ impl App {
         let b = self.shelf.books[order[next as usize]].clone();
         // 切回书架屏，并让光标落在这一本身上
         self.screen = Screen::Shelf;
-        self.back.clear();
         self.shelf_cursor = self
             .rows()
             .iter()
@@ -1733,52 +1814,100 @@ mod tests {
         let app = tmp("start");
         assert_eq!(app.screen, Screen::Shelf);
         assert!(!app.quit);
-        assert!(app.back.is_empty());
     }
 
+    /// 五屏**平级**：数字键直接跳，没有「进下一层」这回事。
     #[test]
-    fn navigation_is_a_stack_and_esc_pops_one_level() {
-        // 这是这次交互重做的地基：一屏一屏进，Esc 逐层退回
-        let mut app = tmp("stack");
+    fn the_five_screens_are_peers_reachable_by_number() {
+        let mut app = tmp("flat");
+        for (i, want) in SCREENS.iter().enumerate() {
+            let key = (b'1' + i as u8) as char;
+            // 搜索屏的关键字框有焦点时数字是**文本**（见下一条），
+            // 这里先把键盘交给列表，测的才是「跳屏」
+            app.search_focus = SearchFocus::Results;
+            app.handle(Key::Char(key));
+            assert_eq!(app.screen, *want, "按 `{key}` 应当跳到 {want:?}");
+        }
+        // 越界的数字不该崩、也不该跳到别处
+        app.go(Screen::Reader);
+        app.search_focus = SearchFocus::Results;
+        for c in ['6', '9'] {
+            app.handle(Key::Char(c));
+            assert_eq!(app.screen, Screen::Reader, "`{c}` 没有对应的屏");
+        }
+    }
+
+    /// 搜索框有焦点时，数字和 `q` 都是**文本**，不是命令。
+    ///
+    /// 「全局键」和「常驻输入框」撞在一起时，输入框赢 —— 在搜索框里打小说名
+    /// 带个数字就跳屏、带个 q 就退出，是不能接受的。
+    #[test]
+    fn typing_in_the_search_box_beats_the_global_screen_keys() {
+        let mut app = online_app("flat-typing");
+        app.go(Screen::Search);
+        assert_eq!(app.search_focus, SearchFocus::Input);
+        for c in "q12345".chars() {
+            app.handle(Key::Char(c));
+        }
+        assert!(!app.quit, "不该退出");
+        assert_eq!(app.screen, Screen::Search, "不该跳屏");
+        assert_eq!(app.state().query, "q12345", "这些都该是文本");
+    }
+
+    /// 平级 = 换屏不留痕。进 A、进 B、回 A，跟「从没去过 B」一样。
+    ///
+    /// （层级版里 A 会被压进返回栈，于是 Esc 回退的顺序依赖你走过的路径。）
+    #[test]
+    fn switching_screens_leaves_no_history() {
+        let mut app = tmp("nohistory");
+        app.go(Screen::Search);
+        app.go(Screen::Sources);
         app.go(Screen::Search);
         assert_eq!(app.screen, Screen::Search);
-        app.go(Screen::Sources);
-        assert_eq!(app.screen, Screen::Sources);
-
-        app.handle(Key::Esc);
-        assert_eq!(app.screen, Screen::Search, "Esc 只退一层");
+        // Esc 永远回书架 —— 不管之前走过哪几屏
         app.handle(Key::Esc);
         assert_eq!(app.screen, Screen::Shelf);
-        // 最外层再按 Esc 不该退出，也不该崩
+    }
+
+    /// Esc 是「回家」，不是「退一层」。
+    #[test]
+    fn esc_goes_home_from_any_screen() {
+        for screen in SCREENS {
+            let mut app = tmp(&format!("home-{screen:?}"));
+            app.go(screen);
+            app.handle(Key::Esc);
+            assert_eq!(app.screen, Screen::Shelf, "{screen:?} 上 Esc 该回书架");
+        }
+        // 在书架上按 Esc 什么都不发生（也别退出）
+        let mut app = tmp("home-shelf");
         app.handle(Key::Esc);
         assert_eq!(app.screen, Screen::Shelf);
         assert!(!app.quit);
     }
 
     #[test]
-    fn go_is_idempotent_and_never_stacks_duplicates() {
-        let mut app = tmp("godup");
-        app.go(Screen::Search);
-        app.go(Screen::Search);
-        assert_eq!(app.back.len(), 1, "重复进同一屏不该压两层");
-        app.handle(Key::Esc);
-        assert_eq!(app.screen, Screen::Shelf);
+    fn q_quits_from_every_screen() {
+        // `q` 全局退出，哪一屏都行
+        for screen in SCREENS {
+            let mut app = online_app(&format!("quit-{screen:?}"));
+            app.go(screen);
+            // 搜索屏默认把键盘给了关键字框，那里 `q` 是文本
+            app.search_focus = SearchFocus::Results;
+            app.handle(Key::Char('q'));
+            assert!(app.quit, "{screen:?} 屏上 q 该退出");
+            assert!(!app.status.contains("退出确认"), "不该弹确认框");
+        }
     }
 
+    /// 但**输入框有焦点时 `q` 是文本** —— 这条比「全局退出」更重要：
+    /// 在搜索框里打小说名带个 q 就退出是不可接受的。
     #[test]
-    fn q_quits_from_the_root_shelf_and_only_there() {
-        // `q` 只在根屏退出：别的屏上它可能是本屏命令，而且
-        // 搜索框有焦点时它必须是**文本**（在搜索框里敲小说名带个 q 就退出是不可接受的）
-        let mut app = tmp("quit-shelf");
+    fn q_is_still_text_while_typing() {
+        let mut app = online_app("quit-typing");
+        app.go(Screen::Search);
         app.handle(Key::Char('q'));
-        assert!(app.quit);
-
-        for screen in [Screen::Toc, Screen::Reader, Screen::Sources] {
-            let mut app = tmp(&format!("noquit-{screen:?}"));
-            app.screen = screen;
-            app.handle(Key::Char('q'));
-            assert!(!app.quit, "{screen:?} 屏上 q 不该退出");
-        }
+        assert!(!app.quit, "在搜索框里打 q 不该退出");
+        assert_eq!(app.state().query, "q");
     }
 
     #[test]
@@ -2023,31 +2152,51 @@ mod tests {
         assert_eq!(app.toc_cursor, 0);
     }
 
+    /// 标签栏：五个屏都在，当前那个标出来，键位就写在名字前面。
     #[test]
-    fn the_breadcrumb_shows_where_you_are_and_where_esc_goes() {
-        // 一屏一屏地走之后，「我在哪、Esc 回哪」必须一眼看得见
-        let mut app = tmp("crumbs");
-        assert_eq!(app.breadcrumb(), "书架");
+    fn the_tab_bar_lists_all_five_screens() {
+        let mut app = tmp("tabs");
+        let tabs = app.tabs();
+        assert_eq!(tabs.len(), 5);
+        assert_eq!(
+            tabs.iter().map(|(_, l, _)| *l).collect::<Vec<_>>(),
+            ["书架", "搜索", "目录", "阅读", "书源"]
+        );
+        // 数字就是下标 + 1
+        assert_eq!(
+            tabs.iter().map(|(n, _, _)| *n).collect::<Vec<_>>(),
+            [1, 2, 3, 4, 5]
+        );
+        // 只有当前那一个是亮的
+        assert_eq!(tabs.iter().filter(|(_, _, here)| *here).count(), 1);
+        assert!(tabs[0].2, "起手在书架");
+
+        app.go(Screen::Reader);
+        let tabs = app.tabs();
+        assert!(!tabs[0].2);
+        assert!(tabs[3].2, "跳到阅读之后亮的是它");
+        assert_eq!(tabs.iter().filter(|(_, _, here)| *here).count(), 1);
+    }
+
+    #[test]
+    fn the_screen_detail_summarises_that_screen() {
+        let mut app = tmp("detail");
         app.go(Screen::Search);
-        // 面包屑画的是**整条路径**，不只当前屏 —— 这样一眼能看出 Esc 会退到哪
-        assert_eq!(app.breadcrumb(), "书架 › 搜索");
+        assert_eq!(app.screen_detail(), "", "没关键字时没什么好说的");
         keys(&mut app, "斗破");
-        assert_eq!(app.breadcrumb(), "书架 › 搜索 “斗破”");
+        assert_eq!(app.screen_detail(), "“斗破”");
         app.go(Screen::Toc);
         assert!(
-            app.breadcrumb().starts_with("书架 › 搜索 “斗破” › 目录 · "),
+            app.screen_detail().ends_with(" 章"),
             "{}",
-            app.breadcrumb()
+            app.screen_detail()
         );
         app.go(Screen::Reader);
         assert!(
-            app.breadcrumb().contains("› 阅读 · 第 1 / "),
+            app.screen_detail().starts_with("第 1 / "),
             "{}",
-            app.breadcrumb()
+            app.screen_detail()
         );
-        app.handle(Key::Esc);
-        assert_eq!(app.screen, Screen::Toc);
-        assert!(!app.breadcrumb().contains("阅读"), "{}", app.breadcrumb());
     }
 
     #[test]
@@ -2148,6 +2297,65 @@ mod tests {
         app.handle(Key::Char('m'));
         assert_eq!(app.reader_mode(), ReaderMode::Normal);
         assert!(app.reader_lines().iter().any(|l| l.contains("推开门")));
+    }
+
+    /// 隐蔽模式下闲置够久就把正文藏起来；任何输入立刻显示回来。
+    ///
+    /// 时钟是从外面喂进来的，所以这里不用 sleep —— 直接说「现在过了 20 秒」。
+    #[test]
+    fn stealth_mode_hides_the_prose_when_idle_and_shows_it_on_input() {
+        let mut app = tmp("idlehide");
+        app.go(Screen::Reader);
+        app.handle(Key::Char('m'));
+        assert_eq!(app.reader_mode(), ReaderMode::Stealth);
+        assert!(app.prose_visible(), "刚按完键，正文该是露着的");
+
+        // 没过多久
+        app.tick(app.idle_hide_ms - 1);
+        assert!(app.prose_visible(), "还没到点，别藏");
+
+        // 到点了
+        app.tick(app.idle_hide_ms);
+        assert!(!app.prose_visible(), "闲置够久就该藏起来");
+
+        // 再来一下任何键（不是 `m`，随便一个）就露回来
+        app.tick(app.idle_hide_ms + 5_000);
+        app.handle(Key::Char('j'));
+        assert!(app.prose_visible(), "有输入就该立刻显示");
+        // 而且计时重新开始
+        app.tick(app.idle_hide_ms + 5_000 + app.idle_hide_ms - 1);
+        assert!(app.prose_visible(), "计时要从最后一次输入算起");
+        app.tick(app.idle_hide_ms + 5_000 + app.idle_hide_ms);
+        assert!(!app.prose_visible());
+    }
+
+    #[test]
+    fn normal_mode_never_hides_anything() {
+        let mut app = tmp("idlenormal");
+        app.go(Screen::Reader);
+        assert_eq!(app.reader_mode(), ReaderMode::Normal);
+        app.tick(10_000_000);
+        assert!(app.prose_visible(), "普通模式跟这个功能无关");
+    }
+
+    /// 藏起来之后，**内容其实还在** —— 只是不画出来。
+    /// 别把它当成「没有正文」，否则会显示「这一章没有正文」把人也骗了。
+    #[test]
+    fn hiding_does_not_pretend_there_is_no_text() {
+        let mut app = tmp("idlecontent");
+        app.go(Screen::Reader);
+        app.handle(Key::Char('m'));
+        app.tick(app.idle_hide_ms);
+        assert!(!app.prose_visible());
+        assert!(
+            !app.reader_paragraphs().is_empty(),
+            "正文还在，只是不显示：{:?}",
+            app.reader_paragraphs()
+        );
+        // 滚动位置也不该被重置
+        app.reader_scroll = 3;
+        app.tick(app.idle_hide_ms + 1_000);
+        assert_eq!(app.reader_scroll, 3, "藏正文不该动滚动位置");
     }
 
     #[test]

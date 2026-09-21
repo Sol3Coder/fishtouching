@@ -114,21 +114,37 @@ fn title(f: &mut Frame, app: &App, area: Rect) {
 }
 
 /// 面包屑。一屏一屏地走之后，「我在哪、Esc 会回到哪」必须一眼看得见。
+/// 标签栏：五个平级的屏，当前那个反显 + `>` 标出来。
+///
+/// 替换掉了原来的面包屑。面包屑解释「我在层级里的哪一层」；五屏平级之后
+/// 没有层，只有「有哪些屏、我在哪个、按几跳过去」—— 数字就写在名字前面，
+/// 键位不用另外记。
 fn crumb(f: &mut Frame, app: &App, area: Rect) {
-    f.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(format!(" {} ", app.breadcrumb()), Style::new().fg(KEYWORD)),
-            Span::styled(
-                if app.screen == Screen::Shelf {
-                    ""
-                } else {
-                    "   Esc 返回上一层"
-                },
-                Style::new().fg(FAINT),
-            ),
-        ])),
-        area,
-    );
+    let mut spans: Vec<Span> = vec![Span::raw(" ")];
+    for (n, label, here) in app.tabs() {
+        if here {
+            spans.push(Span::styled(
+                format!(" {n} {label} "),
+                Style::new()
+                    .fg(NOVEL)
+                    .add_modifier(Modifier::REVERSED | Modifier::BOLD),
+            ));
+        } else {
+            spans.push(Span::styled(
+                format!(" {n} "),
+                Style::new().fg(FOCUS_BORDER),
+            ));
+            spans.push(Span::styled(format!("{label} "), Style::new().fg(FAINT)));
+        }
+    }
+    let detail = app.screen_detail();
+    if !detail.is_empty() {
+        spans.push(Span::styled(
+            format!("  {detail}"),
+            Style::new().fg(KEYWORD),
+        ));
+    }
+    f.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
 // ── 五屏 ────────────────────────────────────────────────────────────────
@@ -261,6 +277,8 @@ fn toc(f: &mut Frame, app: &mut App, area: Rect) {
 
 fn reader(f: &mut Frame, app: &mut App, area: Rect) {
     let stealth = app.reader_mode() == ReaderMode::Stealth;
+    // 隐蔽模式 + 闲置够久 → 正文不显示（旁边有人时看不出在读小说）
+    let hiding = stealth && !app.prose_visible();
     let heading = if stealth {
         // 隐蔽模式下不画章节标题 —— 那行会直接暴露在看小说
         String::new()
@@ -274,7 +292,11 @@ fn reader(f: &mut Frame, app: &mut App, area: Rect) {
         clip(&app.display_book_name(), 26),
         app.state().chapter,
         app.toc_len(),
-        if stealth { " · 隐蔽" } else { "" }
+        match (stealth, hiding) {
+            (true, true) => " · 隐蔽（正文已隐藏，按任意键显示）",
+            (true, false) => " · 隐蔽",
+            _ => "",
+        }
     );
     let block = Block::bordered()
         .title(format!(" {title} "))
@@ -299,9 +321,23 @@ fn reader(f: &mut Frame, app: &mut App, area: Rect) {
     if stealth {
         // 隐蔽模式：逐行画生成出来的 TS。`//` 注释行是正文（给亮色），
         // 其余是代码（压暗）—— 一眼能从代码里认出小说，但整屏看着还是代码。
+        //
+        // `hiding` 时把注释里的正文抹掉：**保留 `//` 标记和行数**，
+        // 于是屏幕不会跳、滚动位置也还作数，看着就是一片注释掉的代码。
         for raw in app.reader_lines() {
-            let is_prose = raw.trim_start().starts_with("//");
-            let style = if is_prose {
+            let comment = comment_marker(&raw);
+            if hiding {
+                // 藏的时候**所有注释内容都抹掉**，不只是 `//` 那些。
+                // 生成的文件头 `/** … */` 里有书名和章节名 —— 只抹 `//`
+                // 的话书名照样明晃晃挂在第一屏（测试就是这么发现的）。
+                // 保留标记和行数：屏幕不跳，滚动位置还作数。
+                lines.push(Line::from(Span::styled(
+                    redact_comment(&raw),
+                    Style::new().fg(CODE),
+                )));
+                continue;
+            }
+            let style = if comment.is_some() {
                 Style::new().fg(NOVEL)
             } else {
                 Style::new().fg(CODE)
@@ -320,7 +356,7 @@ fn reader(f: &mut Frame, app: &mut App, area: Rect) {
         }
     }
     // 隐蔽模式下没有正文时，那份 TS 里只有头注释 —— 别拿它冒充正文
-    if lines.is_empty() || paragraphs.is_empty() {
+    if lines.is_empty() || (paragraphs.is_empty() && !hiding) {
         lines = vec![Line::from(Span::styled(
             "（这一章没有正文 —— 可能还在加载，或者书源的正文规则失效了）",
             Style::new().fg(FAINT),
@@ -392,6 +428,33 @@ fn sources(f: &mut Frame, app: &mut App, area: Rect) {
         )
     };
     list(f, app, area, &title, items, sel);
+}
+
+/// 这一行是注释吗？返回它前面的注释标记（含缩进）。
+///
+/// 认三种：`//…`、块注释的 `/**` / ` * …` / ` */`。生成的文件里，
+/// **正文和元信息都在注释里**，所以「哪些行是注释」= 「哪些行要藏」。
+fn comment_marker(raw: &str) -> Option<&str> {
+    let indent = raw.len() - raw.trim_start().len();
+    let t = &raw[indent..];
+    if t.starts_with("//") {
+        return Some(&raw[..indent + 2]);
+    }
+    if t.starts_with('*') || t.starts_with("/*") {
+        // `/*` / `/**` 整体是标记；` * x` 只到 `*`
+        let n = if t.starts_with("/*") { 2 } else { 1 };
+        return Some(&raw[..indent + n]);
+    }
+    None
+}
+
+/// 把一行的注释内容抹掉，只留标记（和缩进）。
+/// 不是注释行就原样返回 —— 代码里有信息，也正是「像代码」的那部分。
+fn redact_comment(raw: &str) -> String {
+    match comment_marker(raw) {
+        Some(marker) => marker.to_string(),
+        None => raw.to_string(),
+    }
 }
 
 // ── 共用的画法 ──────────────────────────────────────────────────────────
@@ -486,19 +549,19 @@ fn hints(f: &mut Frame, app: &App, area: Rect) {
         "打字改字段   Tab 换字段   Enter 保存   Esc 取消"
     } else {
         match app.screen {
-            Screen::Shelf => {
-                "↑↓ 选书   Enter 打开   / 搜索   d 移出书架   S 书源   ? 帮助   q 退出"
-            }
+            Screen::Shelf => "↑↓ 选书   Enter 打开   / 搜索   d 移出书架   1-5 跳屏   q 退出",
             Screen::Search if app.search_focus == SearchFocus::Input => {
-                "打字改关键字   Enter 搜索   Tab 去结果   Esc 回书架"
+                "打字改关键字   Enter 搜索   Tab 去结果   Esc 回书架   q 退出"
             }
-            Screen::Search => "↑↓ 选结果   Enter 打开   b 加入书架   Tab 改关键字   Esc 回书架",
-            Screen::Toc => "↑↓ 选章   Enter 阅读   g 跳章   R 重拉目录   Esc 返回",
+            Screen::Search => {
+                "↑↓ 选结果   Enter 打开   b 加入书架   Tab 改关键字   Esc 回书架   q 退出"
+            }
+            Screen::Toc => "↑↓ 选章   Enter 阅读   g 跳章   R 重拉目录   Esc 回书架   q 退出",
             Screen::Reader => {
-                "↑↓ 滚动   n p 上下章   g 跳章   m 隐蔽/普通   R 重拉目录   Esc 回目录"
+                "↑↓ 滚动   n p 上下章   g 跳章   m 隐蔽/普通   R 重拉目录   Esc 回书架   q 退出"
             }
             Screen::Sources => {
-                "↑↓ 选源   空格 开关   Enter 编辑   / 筛选   a 导入   d 删除   Esc 返回"
+                "↑↓ 选源   空格 开关   Enter 编辑   / 筛选   a 导入   d 删除   Esc 回书架   q 退出"
             }
         }
     };
@@ -893,6 +956,44 @@ mod tests {
             assert!(!got.is_empty());
         }
         assert_eq!(wrap("", 10), vec![String::new()]);
+    }
+
+    /// 藏正文时抹掉的是**所有注释**的内容，不只是 `//` 那些。
+    ///
+    /// 生成的文件头里有书名和章节名 —— 只抹 `//` 的话书名照样挂在第一屏。
+    #[test]
+    fn redaction_covers_every_kind_of_comment() {
+        // `//` 正文
+        assert_eq!(redact_comment("// 他推开门，楼道里的灯灭了。"), "//");
+        // 文件头（块注释的三种行）
+        assert_eq!(redact_comment("/**"), "/*");
+        assert_eq!(redact_comment(" * 《夜色渐浓》 —— 示例作者"), " *");
+        assert_eq!(redact_comment(" */"), " *");
+        // 带缩进的
+        assert_eq!(redact_comment("    // 缩进过的正文"), "    //");
+        assert_eq!(redact_comment("  * 缩进过的头"), "  *");
+        // 代码行**不动** —— 那正是「像代码」的部分，也是要留着给人看的
+        assert_eq!(
+            redact_comment("export interface BufferState {"),
+            "export interface BufferState {"
+        );
+        assert_eq!(redact_comment("  retry?: number;"), "  retry?: number;");
+        assert_eq!(redact_comment("}"), "}");
+        // 空行
+        assert_eq!(redact_comment(""), "");
+    }
+
+    /// 注释行认全：`//`、`/**`、` * `、` */` 都算，代码行不算。
+    #[test]
+    fn comment_detection_is_conservative() {
+        assert!(comment_marker("//x").is_some());
+        assert!(comment_marker("/**").is_some());
+        assert!(comment_marker(" * x").is_some());
+        assert!(comment_marker(" */").is_some());
+        assert!(comment_marker("    // 缩进的").is_some());
+        assert!(comment_marker("export const x = 1;").is_none());
+        assert!(comment_marker("  return a * b;").is_none(), "乘法不是注释");
+        assert!(comment_marker("").is_none());
     }
 
     #[test]

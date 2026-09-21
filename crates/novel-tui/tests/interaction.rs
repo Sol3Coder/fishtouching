@@ -18,7 +18,7 @@ use novel_core::online::{Done, Online};
 use novel_core::source::BookSource;
 use novel_core::state::Session;
 use novel_tui::app::{App, Key, ReaderMode, Screen, SearchFocus};
-use novel_tui::run::{parse_script, Driver, Step, Workers};
+use novel_tui::run::{parse_script, parse_steps, Driver, Step, Workers};
 use novel_tui::ui;
 
 // ── 跑测试的脚手架 ──────────────────────────────────────────────────────
@@ -170,24 +170,64 @@ fn enter_walks_into_the_toc_and_esc_walks_back_out() {
     );
     assert_eq!(app.screen, Screen::Reader, "再回车应当进阅读屏");
     let read_frame = frames.remove(frames.len() - 1);
-    // 面包屑里会出现「目录」二字，所以断言的是**目录那份清单**没被画出来
+    // 标签栏里会出现「目录」二字，所以断言的是**目录那份清单**没被画出来
     assert!(
         !read_frame.contains("1. 推开门"),
         "阅读屏里不该有目录清单：\n{read_frame}"
     );
+    // 标签栏要标出当前在哪一屏（反显在纯文本里看不出来，所以看右边的补充信息）
     assert!(
-        read_frame.contains("阅读 · 第 1 /"),
-        "面包屑要指出当前屏：\n{read_frame}"
+        read_frame.contains("第 1 / 3 章"),
+        "标签栏要指出当前屏：\n{read_frame}"
     );
 
-    // Esc 逐层退回（驱动台收尾时会把 quit 置上，所以退到书架就够了）
-    for want in [Screen::Toc, Screen::Shelf] {
-        drive_in(
-            &mut app,
-            parse_script("{esc}").into_iter().map(Step::Key).collect(),
-        );
-        assert_eq!(app.screen, want, "Esc 应当退回 {want:?}");
+    // 平级之后 Esc 是「回书架」，不是「退一层」
+    drive_in(
+        &mut app,
+        parse_script("{esc}").into_iter().map(Step::Key).collect(),
+    );
+    assert_eq!(app.screen, Screen::Shelf, "Esc 回书架");
+}
+
+/// 五屏平级：数字键直接跳，不留历史。
+#[test]
+fn the_screens_are_peers_not_a_stack() {
+    let (app, frames) = run_script("flat-screens", "{3}", false);
+    assert_eq!(app.screen, Screen::Toc, "按 3 直接进目录屏");
+
+    // 从目录按 4 进阅读，再按 3 回目录 —— 不叠任何东西
+    let (app, _) = run_script("flat-screens2", "{enter}{4}{3}", false);
+    assert_eq!(app.screen, Screen::Toc);
+    // Esc 一律回书架（层级版里会退回「进来的那一屏」）
+    let (app, _) = run_script("flat-screens3", "{3}{esc}", false);
+    assert_eq!(app.screen, Screen::Shelf);
+
+    // 标签栏五屏都在，而且把数字键写在名字前面
+    let frame = frames.last().unwrap();
+    for t in ["1 书架", "2 搜索", "3 目录", "4 阅读", "5 书源"] {
+        assert!(frame.contains(t), "标签栏里该有 {t}：\n{frame}");
     }
+}
+
+/// `q` 全局退出：哪一屏都行（搜索框里除外，那里它是文本）。
+///
+/// **不能拿 `app.quit` 当证据** —— 驱动台收尾时自己就会设 `app.quit`，
+/// 所以脚本跑完它永远是 true。改成在 `q` 后面跟一个 `{esc}`：
+/// 真退出了的话循环当场结束、后面的键根本不会执行，屏幕就停在原地；
+/// 没退出的话 `{esc}` 会把人送回书架。两条路的结果不一样，才验得出来。
+#[test]
+fn q_quits_from_any_screen_through_the_real_loop() {
+    for keys in ["{3}q{esc}", "{4}q{esc}", "{5}q{esc}"] {
+        let (app, _) = run_script("quit-anywhere", keys, false);
+        assert_ne!(
+            app.screen,
+            Screen::Shelf,
+            "`q` 该当场退出，后面的 `{{esc}}` 不该跑到（{keys}）"
+        );
+    }
+    // 搜索框里 `q` 是文本 → 没退出 → 后面的 `{esc}` 跑了 → 回书架
+    let (app, _) = run_script("quit-typing", "{2}q{esc}", false);
+    assert_eq!(app.screen, Screen::Shelf, "在搜索框里 q 是文本，没退出");
 }
 
 #[test]
@@ -680,6 +720,60 @@ fn the_shelf_shows_a_hint_when_it_is_empty_but_sources_exist() {
     assert!(out.contains("按 / 搜索") || out.contains("按 /"), "{out}");
     // 有书源、书架空着时**不**塞演示书
     assert!(!out.contains("夜色渐浓"), "{out}");
+}
+
+/// 隐蔽模式下闲置够久，注释里的正文自动藏起来；按一下键又回来。
+///
+/// 这条走**真实事件循环 + 真实时钟**（`{wait:}` 真的 sleep），
+/// 所以验的是「事件循环确实把时钟喂进去了」这件事 —— 光测 `prose_visible`
+/// 是测不到接线对不对的。
+#[test]
+fn stealth_mode_hides_the_prose_after_a_real_idle_wait() {
+    let dir = tmp("idlehide-live");
+    let mut app = app_in(&dir, false);
+    // 真等 15 秒太久，把阈值调小 —— 所以阈值做成了字段
+    app.idle_hide_ms = 300;
+
+    let steps: Vec<Step> = parse_steps("{enter}{enter}{m}{wait:800}");
+    let frames = drive_in(&mut app, steps);
+
+    // 收尾那一帧（等完之后）应当已经藏了
+    assert!(!app.prose_visible(), "闲置超过阈值就该藏");
+    let hidden = frames.last().expect("应当有帧");
+    assert!(
+        !hidden.lines().any(|l| l.contains("推开门")),
+        "藏起来之后画面上不该还有正文：
+{hidden}"
+    );
+    assert!(
+        !hidden.contains("推开门"),
+        "文件头里也有章节名 —— 只抹 `//` 是不够的：
+{hidden}"
+    );
+    // 注释标记还在（行数和布局不变），只是内容没了
+    assert!(
+        hidden.lines().any(|l| l.contains("│/*")),
+        "注释标记要留着，否则屏幕会跳：
+{hidden}"
+    );
+    assert!(
+        hidden.contains("已隐藏"),
+        "标题栏要说清楚现在为什么看不见正文：
+{hidden}"
+    );
+
+    // 再按一下键（不用等）—— 立刻回来
+    let frames = drive_in(
+        &mut app,
+        parse_script("{j}").into_iter().map(Step::Key).collect(),
+    );
+    let shown = frames.last().expect("应当有帧");
+    assert!(app.prose_visible(), "有输入就该显示");
+    assert!(
+        shown.lines().any(|l| l.contains("推开门")),
+        "按完键正文该回来：
+{shown}"
+    );
 }
 
 /// 隐蔽模式：阅读屏显示生成出来的 TS，正文在 `//` 注释里。
