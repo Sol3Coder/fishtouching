@@ -33,9 +33,25 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         return;
     }
 
+    // 隐蔽模式：**整屏只有那块代码**。
+    //
+    // 标题栏（书名/作者/进度/上次搜索）、标签栏（含「夜色渐浓 · 3 章」那种
+    // 补充信息）、状态栏、快捷键提示 —— 全是会出卖你的东西，一起收起来。
+    // 键位一个没变，只是不画它们（功能不受影响）。
+    //
+    // 代价说清楚：状态栏也藏了，所以失败信息在隐蔽模式下看不见 ——
+    // 按一下 `m` 就回来了（`self.status` 一直在，只是没画）。
+    if app.reader_mode() == ReaderMode::Stealth {
+        reader(f, app, area);
+        if app.help {
+            help(f, area);
+        }
+        return;
+    }
+
     let rows = Layout::vertical([
         Constraint::Length(1), // 标题栏
-        Constraint::Length(1), // 面包屑：我在哪、Esc 回哪
+        Constraint::Length(1), // 标签栏：有哪些屏、我在哪个
         Constraint::Min(3),    // 当前屏
         Constraint::Length(1), // 状态栏
         Constraint::Length(1), // 按键提示
@@ -44,7 +60,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
     title(f, app, rows[0]);
     crumb(f, app, rows[1]);
-    // 屏画在 rows[2]：加面包屑那一行时忘了往下挪一格，五屏全被挤成 1 行高
+    // 屏画在 rows[2]：加标签栏那一行时忘了往下挪一格，五屏全被挤成 1 行高
     //（测试当场抓到：阅读屏只剩一条上边框）
     match app.screen {
         Screen::Shelf => shelf(f, app, rows[2]),
@@ -287,17 +303,18 @@ fn reader(f: &mut Frame, app: &mut App, area: Rect) {
             .map(str::to_string)
             .unwrap_or_default()
     };
-    let title = format!(
-        "{} 第 {} / {} 章{}",
-        clip(&app.display_book_name(), 26),
-        app.state().chapter,
-        app.toc_len(),
-        match (stealth, hiding) {
-            (true, true) => " · 隐蔽（正文已隐藏，按任意键显示）",
-            (true, false) => " · 隐蔽",
-            _ => "",
-        }
-    );
+    // 隐蔽模式：块标题换成**文件名** —— 书名和章节名都不能出现在这儿。
+    // 看着就像编辑器打开了一个 `reader.novel`。
+    let title = if stealth {
+        "reader.novel".to_string()
+    } else {
+        format!(
+            "{} 第 {} / {} 章",
+            clip(&app.display_book_name(), 26),
+            app.state().chapter,
+            app.toc_len()
+        )
+    };
     let block = Block::bordered()
         .title(format!(" {title} "))
         .border_style(Style::new().fg(IDLE_BORDER));
@@ -325,19 +342,24 @@ fn reader(f: &mut Frame, app: &mut App, area: Rect) {
         // `hiding` 时把注释里的正文抹掉：**保留 `//` 标记和行数**，
         // 于是屏幕不会跳、滚动位置也还作数，看着就是一片注释掉的代码。
         for raw in app.reader_lines() {
-            let comment = comment_marker(&raw);
-            if hiding {
-                // 藏的时候**所有注释内容都抹掉**，不只是 `//` 那些。
-                // 生成的文件头 `/** … */` 里有书名和章节名 —— 只抹 `//`
-                // 的话书名照样明晃晃挂在第一屏（测试就是这么发现的）。
-                // 保留标记和行数：屏幕不跳，滚动位置还作数。
+            let marker = comment_marker(&raw);
+            // 隐蔽模式下要抹掉的内容分两种，规矩不同：
+            //
+            // * **块注释**（`/** … */` 那个文件头）里是书名、章节名、书源名 ——
+            //   纯泄漏，没有阅读价值，所以**一直**抹掉；
+            // * **行注释**（`//`）是正文本身，**闲置够久**才抹。
+            //
+            // 一开始两种一起处理，结果「正在读」的时候文件头里的书名照样
+            // 明晃晃挂在第一屏（测试抓到的）。
+            let block = matches!(marker, Some(m) if !m.trim_start().starts_with("//"));
+            if block || hiding {
                 lines.push(Line::from(Span::styled(
                     redact_comment(&raw),
                     Style::new().fg(CODE),
                 )));
                 continue;
             }
-            let style = if comment.is_some() {
+            let style = if marker.is_some() {
                 Style::new().fg(NOVEL)
             } else {
                 Style::new().fg(CODE)

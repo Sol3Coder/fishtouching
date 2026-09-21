@@ -209,6 +209,65 @@ fn the_screens_are_peers_not_a_stack() {
     }
 }
 
+/// 隐蔽模式：**整屏只有那块代码**。
+///
+/// 顶部的书名/作者/进度/标签栏、底部的状态栏和快捷键提示，全都不画 ——
+/// 它们每一个都会出卖你（书名、章节名、「上次搜索 斗破苍穹」…）。
+/// 但**键位一个没变**，所以下面同时验功能还在。
+#[test]
+fn stealth_mode_hides_all_the_chrome_but_keeps_the_keys_working() {
+    let (app, frames) = run_script("stealth-chrome", "{enter}{enter}{m}", false);
+    let frame = frames.last().expect("应当有帧");
+
+    // ── 藏起来的那些 ──
+    for leak in [
+        "夜色渐浓",    // 书名
+        "示例作者",    // 作者
+        "第 1 / 3 章", // 章节进度
+        "1 书架",      // 标签栏
+        "2 搜索",
+        "书源 3/3",   // 标题栏右侧
+        "Esc 回书架", // 快捷键提示
+        "↑↓ 滚动",    // 快捷键提示
+        "隐蔽",       // 连「隐蔽」这两个字也不留 —— 那是阅读器的话
+    ] {
+        assert!(
+            !frame.contains(leak),
+            "隐蔽模式下不该出现 {leak:?}：
+{frame}"
+        );
+    }
+    // 顶上和底下都不该有边框外面的东西
+    let first = frame.lines().next().unwrap_or("");
+    assert!(first.contains("reader.novel"), "只该剩个文件名：{first:?}");
+    assert_eq!(
+        frame.lines().filter(|l| l.trim().is_empty()).count(),
+        0,
+        "整屏都该被代码块占满：
+{frame}"
+    );
+
+    // ── 但键还是好使的 ──
+    assert_eq!(app.reader_mode(), ReaderMode::Stealth, "还在隐蔽模式");
+    // `n` 翻章
+    let before = app.state().chapter;
+    let (app2, _) = run_script("stealth-chrome2", "{enter}{enter}{m}{n}", false);
+    assert_eq!(app2.state().chapter, before + 1, "`n` 照样翻章");
+    // `3` 照样跳屏
+    let (app3, _) = run_script("stealth-chrome3", "{3}", false);
+    assert_eq!(app3.screen, Screen::Toc);
+    // `m` 切回普通模式，chrome 全回来
+    let (app4, frames4) = run_script("stealth-chrome4", "{enter}{enter}{m}{m}", false);
+    assert_eq!(app4.reader_mode(), ReaderMode::Normal);
+    let normal = frames4.last().unwrap();
+    assert!(
+        normal.contains("1 书架"),
+        "切回来标签栏就回来了：
+{normal}"
+    );
+    assert!(normal.contains("Esc 回书架"), "快捷键提示也回来");
+}
+
 /// `q` 全局退出：哪一屏都行（搜索框里除外，那里它是文本）。
 ///
 /// **不能拿 `app.quit` 当证据** —— 驱动台收尾时自己就会设 `app.quit`，
@@ -756,9 +815,11 @@ fn stealth_mode_hides_the_prose_after_a_real_idle_wait() {
         "注释标记要留着，否则屏幕会跳：
 {hidden}"
     );
+    // 文件头（书名/章节名）在隐蔽模式下**一直**是抹掉的，
+    // 不是只在闲置时抹
     assert!(
-        hidden.contains("已隐藏"),
-        "标题栏要说清楚现在为什么看不见正文：
+        !hidden.contains("夜色渐浓") && !hidden.contains("推开门"),
+        "书名和章节名都不该出现：
 {hidden}"
     );
 
@@ -797,8 +858,13 @@ fn the_reader_can_disguise_itself_as_typescript() {
             .any(|l| l.contains("//") && l.contains("推开门")),
         "正文该以 `//` 注释的形式出现：\n{frame}"
     );
-    // 标题栏要标出来现在是哪个模式，否则用户不知道怎么切回去
-    assert!(frame.contains("隐蔽"), "该标出当前模式：\n{frame}");
+    // 隐蔽模式下**屏幕上看不出**自己在隐蔽模式 —— 界面元素全收起来了
+    //（连「隐蔽」两个字也不留，那是阅读器的话）。按 `m` 或 `Esc` 就回到
+    // 有 chrome 的界面。
+    assert!(
+        !frame.contains("隐蔽"),
+        "隐蔽模式下屏幕上不该有阅读器的痕迹：\n{frame}"
+    );
 
     // 再按一次切回普通模式
     let (app2, frames2) = run_script("stealth2", "{enter}{enter}{m}{m}", false);
