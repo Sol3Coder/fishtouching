@@ -1879,3 +1879,60 @@ $ novel-tui --script '{enter}{wait:6000}nn{wait:15000}'   # 翻到第 3 章
 $ novel-tui --script '{enter}{wait:8000}'                 # 模拟重启
  目录 327 章，接着读第 3 章                                ← 章节记忆生效
 ```
+
+## 23. 默认书源 URL + 本地 EPUB（已实现）
+
+两件事都是用户提的：「直接内置默认书源 url」「支持本地读取，exe 同路径下一个
+文件夹保存本地书」。
+
+### ① 默认书源：先有 URL，再有自动下载
+
+`.novel/sources.json` 不存在时自动下
+`https://legado.aoaostar.com/sources/b778fe6b.json`，下完照常进界面。
+
+* **只在文件不存在时下。** 每次启动拉 20 MB 换一个大概率没变的集合不划算。
+  强制刷新 = 删文件重启，或书源屏 `a` 粘 URL。`--offline` 不触发下载。
+* 复用现成的 `Online::import()`（300 秒超时 + 按 `bookSourceUrl` 去重 + 自动 save），
+  所以只多了 ~30 行。
+* **下完必须重新 `Online::load()`**：`import` 不滤掉停用/非文本源，`load` 会滤
+  （`enabled && kind == 0`）。不重走一遍的话首次启动看到 2783、重启变 2588，
+  白送一个「怎么少了几百个」的疑问。
+* 顺手修掉一个真 bug：空集合原来返回 `None`，于是 `a` 永远报「没有加载书源文件」
+  ——表现就是「删光最后一条之后加不回来」。现在空集合也算「有书源」
+  （`--offline` 仍是 `None` → 演示书库）。
+
+### ② 本地 EPUB：靠「形状对齐」而不是「加一条支路」
+
+关键决定：**把 epub 拆成和在线抓到的一章完全相同的形状**，于是目录屏 / 翻章 /
+章节记忆 / 隐蔽模式一行都不用分叉。
+
+| | 在线 | 本地 |
+|---|---|---|
+| 目录 | `Vec<crawl::Chapter>`（抓来的） | 同一类型（从 epub 拆出来的） |
+| 正文 | `Done::Read { title, text }`（后台任务回） | 同一消息（**同步**直接喂给 `on_done`） |
+| 书架的键 | 详情页 URL | `epub://<路径>` |
+| 书源名 | 源名字 | `"本地"` |
+
+* 新 `novel-core/src/epub.rs`（~400 行 + 10 测试）：`META-INF/container.xml` → OPF
+  → 元信息/manifest/spine → 目录。依赖只加两个：`zip`（EPUB 就是个 zip）+
+  `roxmltree`（零传递依赖的 XML）。
+* **正文只抽 `<body>`**：`format_text` 会把 `<title>` 里的章节名也留下来。
+  第一段等于章节名时再去掉 —— 标题栏已经显示了。
+* 目录优先级 `nav.xhtml` → `toc.ncx` → spine；**按 href 去重**。
+  真书（Tomato-Novel-Downloader 出的那本）把整份目录写了两遍：1692 条 = 846 × 2，
+  不去重目录里每本书出现两轮。
+* **本地书不排后台任务**：正文就在磁盘上（几毫秒），走一次任务队列反而多一次
+  「加载中」闪烁。`request_chapter` 里直接 `on_done`。
+* 坏 epub 整个跳过、声明了 nav 但文件不在就退回 spine、章节越界明确报错 ——
+  都是「不许静默返回空」那条规矩。
+* 库的位置：**exe 旁边的 `library/`**（用户指定）。刻意按 exe 不按当前目录 ——
+  双击、换目录跑的时候「我的书在哪」不该跟着变。
+
+### 测试
+
+`epub.rs` 10 条（合成 epub，不依赖仓库里那本 3.7 MB 的真书；另有 1 条
+`#[ignore]` 用 `NOVEL_TEST_EPUB` 打真书）+ `app.rs` 1 条端到端（上架 → 打开 →
+目录 → 正文 → 翻章 → 章节记忆，且断言**全程不排后台任务**）。
+
+真书实测：846 章、`dc:title`/`dc:creator` 正确、抽三章都有正文且无残留标签。
+release exe 在 `target/release/library/` 放书后，书架直接显示、能读、能翻。

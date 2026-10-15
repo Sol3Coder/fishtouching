@@ -10,11 +10,13 @@
 //! * [`js`] —— JS 执行环境（QuickJS）+ legado 的 `java.*` 宿主 API；
 //! * [`crawl`] —— 搜索 / 详情 / 目录 / 正文四步的抓取链路；
 //! * [`online`] —— 把抓取包成「丢给后台线程的任务」；
+//! * [`epub`] —— 本地 epub 书（书名/作者/目录/正文）；
 //! * [`demo`] —— 离线演示书库，在没有可用书源时兜底。
 
 pub mod cache;
 pub mod crawl;
 pub mod demo;
+pub mod epub;
 pub mod html;
 pub mod js;
 pub mod jsonpath;

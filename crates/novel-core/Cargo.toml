@@ -16,3 +16,5 @@ md-5 = { workspace = true }
 sha1 = { workspace = true }
 sha2 = { workspace = true }
 chrono = { workspace = true }
+zip = { workspace = true }
+roxmltree = { workspace = true }

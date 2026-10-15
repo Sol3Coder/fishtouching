@@ -44,6 +44,8 @@ novel-tui —— 独立的小说阅读器（TUI）
 
 界面里按 ? 看按键表。
 
+**本地书**：把 `.epub` 放进 exe 旁边的 `library/`，重启就在书架上。
+
 `--script` 的写法：普通字符就是字符键，`{down}` `{enter}` `{esc}` `{pgup}`
 `{ctrl-c}` 这类是特殊键（见 run.rs 的 named_key）。
 例：novel-tui --script '{down}{enter}nnp'  —— 打开第二本、翻两章再回一章。
@@ -52,8 +54,8 @@ novel-tui —— 独立的小说阅读器（TUI）
 每次改动都立刻写盘，所以别的程序可以随时读 reader.novel。
 
 书源问的是 legado 的导出格式（`bookSourceName` / `ruleSearch` …），
-可以直接用现成的书源集合，不用转换。本实现不支持 JS 规则 ——
-遇到 `@js:` / `{{java.*}}` 会明确报错，而不是悄悄抓到空内容。
+可以直接用现成的书源集合，不用转换。不支持的能力（如 AES）会明确报错，
+而不是悄悄抓到空内容。
 ";
 
 /// 命令行。选项只能出现在这个结构里，别处一律用字段，
@@ -287,9 +289,29 @@ fn build_app(dir: &Path, sources: Option<Online>) -> App {
     if let Some(o) = sources {
         app.set_online(o);
     }
+    // 本地书库：exe 旁边的 `library/`。没有就建一个 —— 不然用户不知道 epub 往哪放。
+    let lib = library_dir();
+    let _ = std::fs::create_dir_all(&lib);
+    let n = app.load_local_library(&lib);
+    if n > 0 {
+        eprintln!("本地书 {n} 本，来自 {}", lib.display());
+    } else {
+        eprintln!("本地书库 {}（把 .epub 丢进去就会上架）", lib.display());
+    }
     // 进界面先把这一章写出去，保证 reader.novel 一定是最新的
     app.persist();
     app
+}
+
+/// 本地书库在**exe 旁边**的 `library/`。
+///
+/// 刻意按 exe 而不是当前目录：双击、换目录跑的时候「我的书在哪」不该跟着变。
+fn library_dir() -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(Path::to_path_buf))
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("library")
 }
 
 /// 脚本模式：把按键喂给**同一个事件循环**，把界面打到 stdout。

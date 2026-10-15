@@ -1,8 +1,10 @@
 # novel-tui —— 独立的小说阅读器
 
-一个终端里的阅读器（ratatui TUI）。**它能读真的网络小说** ——
-直接吃 legado（Android「阅读」）的书源 JSON，不用转换，
-书源里的 JavaScript 也是真跑的（内置 QuickJS）。
+一个终端里的阅读器（ratatui TUI）。**两种书都能读**：
+
+* **本地 EPUB** —— 把 `.epub` 丢进 exe 旁边的 `library/`，上架即读，不联网；
+* **网络小说** —— 直接吃 legado（Android「阅读」）的书源 JSON，不用转换，
+  书源里的 JavaScript 也是真跑的（内置 QuickJS）。
 
 ```
  演示书架 · 《夜色渐浓》 示例作者  第 1 / 3 章  书源 3/3        上次搜索 “斗破苍穹”
@@ -68,6 +70,30 @@ https://legado.aoaostar.com/sources/b778fe6b.json
 只在「文件不存在」时下载。不想每次启动都联网就让它躺着（已经有了就不会再拉）；
 想强制刷新整套，删掉 `.novel/sources.json` 再启动，或在书源屏 `a` 粘上面的 URL。
 一条都不想留就 `--offline`（`--offline` 不会触发下载）。
+
+## 本地书（EPUB）
+
+把 `.epub` 丢进 **exe 旁边的 `library/`**，重启就在书架上 —— 不需要书源，也不联网。
+
+```
+<exe 所在目录>/library/*.epub
+```
+
+* 每次启动扫一遍，`*.epub` 都挂到书架。**幂等**：已经在架子上的只刷新书名/作者/
+  章数，阅读进度不动，不会因为重启变成两条。
+* 书名/作者取 OPF 里的 `dc:title` / `dc:creator`。
+* 目录取 `nav.xhtml`（EPUB3）→ `toc.ncx`（EPUB2）→ spine 顺序（章节名用文件名）。
+  真书里见过整份目录被写两遍的，所以按 href 去重。
+* 正文只抽 `<body>`（不然 `<title>` 里的章节名会混进正文），标签清掉、按段落分行 ——
+  和在线抓来的一章**同一个形状**，所以目录屏 / 翻章 / 章节记忆 / 隐蔽模式
+  全都不分岔。
+* **本地书不排后台任务**：正文就在磁盘上，读一章几毫秒，直接同步渲染
+  （少一次「加载中」闪烁）。
+* 打不开的 epub **整个跳过**（一个坏文件不该让别的书消失）；章节读不到会明确报错，
+  不静默给空正文。
+* 支持 EPUB2/EPUB3；非 UTF-8 的（GBK）也能读。
+
+`--offline` 只管书源，本地书照样在。
 
 ## 书源
 
@@ -477,9 +503,10 @@ crates/novel-tui/          TUI
 ## 生成的文件
 
 ```
-.novel/state.json     {"book":0,"chapter":2,"query":"","enabled":[true,true,true]}
+.novel/state.json     {"book":0,"chapter":2,"query":""}
 .novel/reader.novel   渲染结果（纯输出，不含状态）
 .novel/sources.json   书源（不存在时自动下载内置集合；--offline 跳过）
+<exe目录>/library/    本地 epub（放进去就上架）
 ```
 
 阅读页里正文长这样：
@@ -640,6 +667,8 @@ EOF
 - [x] **P1.6** XPath（`/`、`//`、`@xpath:`）—— 解锁 **223 个源**
 - [x] **P1.7** JSON 路径（`$.`、`@json:`、裸键名）—— 解锁 **494 个源**
 - [ ] **P1.8** `java.aesBase64DecodeToString` 之类（AES 要引 `aes`+`cbc`），约 44 处
+- [x] **P1.8** 默认书源 URL 内置 + 首次启动自动下载（下完可删/加/改）
+- [x] **P1.9** **本地 EPUB**：exe 旁边 `library/` 里的 epub 直接上架、离线可读
 - [ ] **P2** 进度换 SQLite、多本共存
 - [x] **P2.5** 交互规格评审（`docs/tui-interaction-design.md`）：修掉全局键
       抢文本输入的 bug、加面包屑、书源筛选、三字段编辑表单

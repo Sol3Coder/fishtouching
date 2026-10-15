@@ -3,11 +3,12 @@
 //! 键位处理、面板焦点、光标与滚动都在这里，所以可以像普通函数一样测
 //! （`handle(Key::Char('n'))` 然后断言状态），不需要起一个终端。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use novel_core::crawl::{Chapter, Hit as WebHit};
 use novel_core::demo;
+use novel_core::epub::{self, Epub};
 use novel_core::online::{Done, Job, Online};
 use novel_core::render::{Book, Chapter as RChapter};
 use novel_core::shelf::{Shelf, ShelfBook, SHELF_FILE};
@@ -268,6 +269,9 @@ pub struct App {
     pub web_hits: Option<Vec<WebHit>>,
     /// 当前这本书的目录（在线模式）。空表示还在演示模式。
     pub chapters: Vec<Chapter>,
+    /// 正在读的**本地 epub**。`Some` 时正文直接从磁盘读，不排后台任务。
+    /// 目录仍然填进 `chapters`，所以目录屏 / 翻章 / 渲染走的还是同一条路。
+    pub local: Option<Epub>,
     /// 目录是从第几个书源抓来的（读正文要用同一个源）。
     pub toc_source: usize,
     /// 当前这本书的书名与作者（在线模式下的详情页信息）。
@@ -310,6 +314,7 @@ impl App {
             online: None,
             web_hits: None,
             chapters: Vec::new(),
+            local: None,
             toc_source: 0,
             book_name: String::new(),
             book_author: String::new(),
@@ -470,6 +475,33 @@ impl App {
                 }
             })
             .collect()
+    }
+
+    /// 扫本地书库，把 epub 挂到书架上。返回挂上（或刷新）的本地书本数。
+    ///
+    /// **幂等**：已经在架子上的书只刷新书名/作者/章数，阅读进度不动
+    /// （`Shelf::add` 就是按 URL 合并的）。`read_at` 传 0，这样每次启动
+    /// 不会把本地书的时间刷成「刚刚」，书架的排序才不会每启动一次就变。
+    pub fn load_local_library(&mut self, dir: &Path) -> usize {
+        let books = epub::scan_dir(dir);
+        for b in &books {
+            self.shelf.add(ShelfBook {
+                source: epub::LOCAL_SOURCE.into(),
+                name: b.title.clone(),
+                author: b.author.clone(),
+                url: epub::url_of(&b.path),
+                chapter: 1,
+                chapters: b.chapters.len(),
+                ..Default::default()
+            });
+        }
+        if !books.is_empty() {
+            if let Err(e) = self.shelf.save() {
+                self.status = format!("书架写盘失败：{e}");
+            }
+            self.sync_cursors();
+        }
+        books.len()
     }
 
     /// 当前光标那一行。
@@ -738,11 +770,14 @@ impl App {
                 let book = Book {
                     name: self.book_name.clone(),
                     author: self.book_author.clone(),
-                    source: self
-                        .online
-                        .as_ref()
-                        .and_then(|o| o.names().get(self.toc_source).cloned())
-                        .unwrap_or_default(),
+                    source: if self.local.is_some() {
+                        epub::LOCAL_SOURCE.to_string()
+                    } else {
+                        self.online
+                            .as_ref()
+                            .and_then(|o| o.names().get(self.toc_source).cloned())
+                            .unwrap_or_default()
+                    },
                     total_chapters: self.chapters.len(),
                 };
                 let chapter = RChapter {
@@ -774,8 +809,24 @@ impl App {
     }
 
     /// 把「读当前这一章」排进队列。
+    ///
+    /// 本地 epub：正文就在手边（几毫秒），**不排后台任务** ——
+    /// 走一次任务队列反而要多一次「加载中」闪烁。直接当场喂给 `on_done`，
+    /// 后面那一截（渲染、写盘、章节记忆）和在线书完全一样。
     fn request_chapter(&mut self) {
         let i = self.state().chapter.saturating_sub(1);
+        if let Some(book) = self.local.clone() {
+            let Some(ch) = book.chapters.get(i) else {
+                self.status = format!("没有第 {} 章（共 {} 章）", i + 1, book.chapters.len());
+                return;
+            };
+            let title = ch.title.clone();
+            match book.chapter_text(i) {
+                Ok(text) => self.on_done(Done::Read { title, text }),
+                Err(e) => self.status = format!("读不了这一章：{e}"),
+            }
+            return;
+        }
         let Some(ch) = self.chapters.get(i) else {
             return;
         };
@@ -1374,6 +1425,8 @@ impl App {
         let Some(item) = self.cursor_item() else {
             return;
         };
+        // 换书就把上一本本地书丢掉（不然翻章会一直读旧的那本）
+        self.local = None;
         // 演示书（`--offline` 模式）
         if item.url.is_empty() {
             if let Some(b) = item.demo_book {
@@ -1656,8 +1709,13 @@ impl App {
         self.open_shelf_book(&b);
     }
 
-    /// 打开书架上的书：找到对应书源、拉目录、跳回记住的章。
+    /// 打开书架上的书：本地 epub 直接读；在线的找书源、拉目录、跳回记住的章。
     fn open_shelf_book(&mut self, b: &ShelfBook) {
+        self.local = None;
+        if b.url.starts_with(epub::URL_SCHEME) {
+            self.open_local_book(b);
+            return;
+        }
         if self.online.is_none() {
             self.status = "没有加载书源文件，打不开书架上的书".into();
             return;
@@ -1686,6 +1744,48 @@ impl App {
             source: idx,
             url: b.url.clone(),
             force_refresh: false,
+        });
+    }
+
+    /// 打开一本本地 epub。
+    ///
+    /// 目录照样填进 `chapters`，于是接下来「目录屏 / 翻章 / 渲染阅读页」
+    /// 全走在线书那一条路，一行都不用分叉。
+    fn open_local_book(&mut self, b: &ShelfBook) {
+        let Some(path) = epub::path_of(&b.url) else {
+            self.status = format!("不是本地书：{}", b.url);
+            return;
+        };
+        let book = match Epub::open(path) {
+            Ok(e) => e,
+            Err(e) => {
+                self.status = format!("打不开《{}》：{e}", b.name);
+                return;
+            }
+        };
+        self.book_name = book.title.clone();
+        self.book_author = book.author.clone();
+        self.toc_source = 0;
+        let chapters: Vec<Chapter> = book
+            .chapters
+            .iter()
+            .map(|c| Chapter {
+                title: c.title.clone(),
+                url: c.href.clone(),
+            })
+            .collect();
+        self.local = Some(book);
+        self.pending = Some(Pending {
+            url: b.url.clone(),
+            name: self.book_name.clone(),
+            author: self.book_author.clone(),
+            restore: b.chapter.max(1),
+            source_name: epub::LOCAL_SOURCE.into(),
+        });
+        self.status = format!("《{}》本地书 {} 章", self.book_name, chapters.len());
+        self.on_done(Done::Toc {
+            chapters,
+            from_cache: false,
         });
     }
 
@@ -1805,6 +1905,91 @@ mod tests {
             title: title.into(),
             url: url.into(),
         }
+    }
+
+    // ── 本地 epub ────────────────────────────────
+
+    /// 现造一本最小 epub（两章）。测试不依赖仓库里那本 3.7 MB 的真书。
+    fn make_epub(dir: &Path) -> PathBuf {
+        use std::io::Write;
+        let path = dir.join("本地书.epub");
+        let mut z = zip::ZipWriter::new(fs::File::create(&path).unwrap());
+        let opt = zip::write::SimpleFileOptions::default();
+        let mut put = |name: &str, body: &str| {
+            z.start_file(name, opt).unwrap();
+            z.write_all(body.as_bytes()).unwrap();
+        };
+        put(
+            "META-INF/container.xml",
+            r#"<container><rootfiles><rootfile full-path="c.opf"/></rootfiles></container>"#,
+        );
+        put(
+            "c.opf",
+            r#"<package><metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+                 <dc:title>本地书</dc:title><dc:creator>本地作者</dc:creator>
+               </metadata>
+               <manifest><item id="a" href="a.xhtml"/><item id="b" href="b.xhtml"/></manifest>
+               <spine><itemref idref="a"/><itemref idref="b"/></spine></package>"#,
+        );
+        put(
+            "a.xhtml",
+            "<html><head><title>第一章</title></head><body><h1>第一章</h1><p>甲甲甲。</p></body></html>",
+        );
+        put(
+            "b.xhtml",
+            "<html><head><title>第二章</title></head><body><h1>第二章</h1><p>乙乙乙。</p></body></html>",
+        );
+        z.finish().unwrap();
+        path
+    }
+
+    #[test]
+    fn a_local_epub_lands_on_the_shelf_and_reads_without_any_source() {
+        let dir = std::env::temp_dir().join("novel-tui-app-local");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        make_epub(&dir);
+
+        let mut app = App::new(Session::open(dir.join("state.json"), dir.join("reader.novel")));
+        assert!(app.online.is_none(), "本地书不需要任何书源");
+
+        assert_eq!(app.load_local_library(&dir), 1, "epub 要上架");
+        assert_eq!(app.load_local_library(&dir), 1, "再扫一次不能变成两本");
+        let rows = app.rows();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "本地书");
+        assert_eq!(rows[0].author, "本地作者");
+        assert_eq!(rows[0].note, "1/2 章");
+
+        // 打开 → 目录 → 正文，全程不该排后台任务
+        app.open_cursor_for_test();
+        assert!(app.local.is_some());
+        assert_eq!(app.screen, Screen::Toc);
+        assert_eq!(app.toc_len(), 2);
+        assert!(!app.has_pending_job(), "本地书正文就在手边，不该排任务");
+        let text = app.reader_paragraphs().join("\n");
+        assert!(text.contains("甲甲甲。"), "{text}");
+        assert!(
+            app.session.rendered().unwrap().contains("第 1 / 2 章"),
+            "章数要来自 epub 的目录"
+        );
+
+        // 翻一章：目录屏 Enter 进阅读，阅读屏 `n` 翻下一章。都要是同步的。
+        app.handle(Key::Enter);
+        assert_eq!(app.screen, Screen::Reader);
+        assert!(!app.has_pending_job(), "本地书不该排任务");
+        app.handle(Key::Char('n'));
+        assert!(!app.has_pending_job());
+        let text = app.reader_paragraphs().join("\n");
+        assert!(text.contains("乙乙乙。"), "{text}");
+
+        // 章节记忆写回了书架，而且是靠 epub:// 这个主键认的书
+        let url = app.shelf.books[0].url.clone();
+        assert!(url.starts_with("epub://"), "{url}");
+        let b = app.shelf.get(&url).unwrap();
+        assert_eq!(b.source, "本地");
+        assert_eq!(b.chapters, 2);
+        assert_eq!(b.chapter, 2, "读到第二章要记住");
     }
 
     // ── 屏与导航 ────────────────────────────────────────────

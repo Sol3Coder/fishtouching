@@ -16,3 +16,7 @@ novel-core = { path = "../novel-core" }
 # ratatui 自带 crossterm（默认 feature）并从 `ratatui::crossterm` 再导出，
 # 所以不用单独再列一个 crossterm 依赖。
 ratatui = "0.30"
+
+[dev-dependencies]
+# 测试要现造一本最小 epub —— 不想让测试依赖仓库里那本 3.7 MB 的真书
+zip = { workspace = true }
