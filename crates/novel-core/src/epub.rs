@@ -58,8 +58,8 @@ pub struct Epub {
 impl Epub {
     pub fn open(path: impl AsRef<Path>) -> R<Self> {
         let path = path.as_ref().to_path_buf();
-        let bytes = std::fs::read(&path)
-            .map_err(|e| bad(format!("读不了 {}：{e}", path.display())))?;
+        let bytes =
+            std::fs::read(&path).map_err(|e| bad(format!("读不了 {}：{e}", path.display())))?;
         let mut zip = zip_of(&bytes)?;
 
         // 1. container.xml → OPF
@@ -85,8 +85,14 @@ impl Epub {
             };
             let full = join(&opf_dir, href);
             by_id.insert(id.to_string(), full.clone());
-            media.insert(full.clone(), item.attribute("media-type").unwrap_or("").into());
-            props.insert(full.clone(), item.attribute("properties").unwrap_or("").into());
+            media.insert(
+                full.clone(),
+                item.attribute("media-type").unwrap_or("").into(),
+            );
+            props.insert(
+                full.clone(),
+                item.attribute("properties").unwrap_or("").into(),
+            );
         }
         let spine: Vec<String> = elements(&doc, "itemref")
             .into_iter()
@@ -136,7 +142,11 @@ impl Epub {
     /// 第 i 章（0-based）的正文，**换行分段** —— 和 `Done::Read` 的 `text` 同形状。
     pub fn chapter_text(&self, i: usize) -> R<String> {
         let ch = self.chapters.get(i).ok_or_else(|| {
-            bad(format!("没有第 {} 章（共 {} 章）", i + 1, self.chapters.len()))
+            bad(format!(
+                "没有第 {} 章（共 {} 章）",
+                i + 1,
+                self.chapters.len()
+            ))
         })?;
         let bytes = std::fs::read(&self.path)
             .map_err(|e| bad(format!("读不了 {}：{e}", self.path.display())))?;
@@ -300,7 +310,10 @@ fn ncx_chapters(ncx: &str, base: &str) -> Vec<Chapter> {
 /// 去掉避免读起来重复。
 fn clean_body(xhtml: &str, title: &str) -> String {
     let html = Html::parse(xhtml);
-    let body = html.select(None, "body").ok().and_then(|v| v.first().copied());
+    let body = html
+        .select(None, "body")
+        .ok()
+        .and_then(|v| v.first().copied());
     let raw = match body {
         Some(i) => html.outer_html(i),
         None => xhtml.to_string(),
@@ -319,13 +332,19 @@ fn clean_body(xhtml: &str, title: &str) -> String {
 
 /// 目录名（不含最后的文件名）。`"OEBPS/content.opf"` → `"OEBPS"`。
 fn dir_of(path: &str) -> String {
-    path.rsplit_once('/').map(|(d, _)| d).unwrap_or("").to_string()
+    path.rsplit_once('/')
+        .map(|(d, _)| d)
+        .unwrap_or("")
+        .to_string()
 }
 
 /// 文件名去掉扩展名。`"OEBPS/chapter_1.xhtml"` → `"chapter_1"`。
 fn stem_of(path: &str) -> String {
     let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
-    name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name).to_string()
+    name.rsplit_once('.')
+        .map(|(s, _)| s)
+        .unwrap_or(name)
+        .to_string()
 }
 
 /// 把 epub 内部的相对路径拼成 zip 内的完整路径。
@@ -508,7 +527,10 @@ mod tests {
         let e = Epub::open(make_epub("text", true)).unwrap();
         let t = e.chapter_text(0).unwrap();
         assert!(!t.contains("<"), "标签要清掉：{t}");
-        assert!(!t.contains("第一章 起"), "标题在 <title>/<h1> 里，不该混进正文：{t}");
+        assert!(
+            !t.contains("第一章 起"),
+            "标题在 <title>/<h1> 里，不该混进正文：{t}"
+        );
         assert!(t.contains("甲。"), "{t}");
         assert!(t.contains("乙。"), "{t}");
         assert_eq!(t.lines().count(), 2, "两段：{t}");
@@ -554,7 +576,12 @@ mod tests {
         // 抽三章读，每章都要真出正文
         for i in [0, e.chapters.len() / 2, e.chapters.len() - 1] {
             let t = e.chapter_text(i).unwrap();
-            println!("第 {} 章「{}」 {} 字", i + 1, e.chapters[i].title, t.chars().count());
+            println!(
+                "第 {} 章「{}」 {} 字",
+                i + 1,
+                e.chapters[i].title,
+                t.chars().count()
+            );
             assert!(t.chars().count() > 50, "第 {} 章正文太短：{t}", i + 1);
             assert!(!t.contains("<"), "第 {} 章有没清干净的标签", i + 1);
         }

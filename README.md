@@ -1,29 +1,42 @@
-# novel-tui —— 独立的小说阅读器
+# novel-tui
 
-一个终端里的阅读器（ratatui TUI）。**两种书都能读**：
+终端里的小说阅读器（**ratatui TUI**，纯 Rust）。两种书都能读：
 
-* **本地 EPUB** —— 把 `.epub` 丢进 exe 旁边的 `library/`，上架即读，不联网；
-* **网络小说** —— 直接吃 legado（Android「阅读」）的书源 JSON，不用转换，
-  书源里的 JavaScript 也是真跑的（内置 QuickJS）。
+| | 从哪来 | 要联网吗 |
+|---|---|---|
+| **本地 EPUB** | 放进 exe 旁边的 `library/`，启动就在书架上 | 不用 |
+| **网络小说** | 直接吃 [legado](https://github.com/gedoor/legado)（Android「阅读」）的书源 JSON，不转换 | 要 |
+
+书源里的 JavaScript 是**真跑**的（内置 QuickJS），XPath、JSON 路径也都支持。
 
 ```
- 演示书架 · 《夜色渐浓》 示例作者  第 1 / 3 章  书源 3/3        上次搜索 “斗破苍穹”
- 书架 › 目录 · 夜色渐浓 › 阅读 · 第 1 / 3 章    Esc 返回上一层
-┌ 夜色渐浓 第 1 / 3 章 ─────────────────────────────────────────────┐
-│推开门                                                            │
-│                                                                  │
-│他推开门，楼道里的声控灯亮了一下，又灭了。                        │
-│                                                                  │
-│外面在下雨。雨点打在铁皮雨棚上，像有人在楼上不停地挪椅子。        │
-└──────────────────────────────────────────────────────────────────┘
- 第 1 / 3 章                                          ⟳ 没有后台任务
- ↑↓ PgUp/PgDn 滚动   n p 上下章   g 跳章   Esc 回目录   ? 帮助
+ 《你这个级别的僧人，还没权利取经》 水咬纸  第 1 / 846 章  本地        简介
+  1 书架  2 搜索  3 目录  4 阅读  5 书源   第 1 / 846 章
+┌ 你这个级别的僧人，还没权… 第 1 / 846 章 ──────────────────────────────────────┐
+│简介                                                                             │
+│                                                                                 │
+│书名：你这个级别的僧人，还没权利取经                                             │
+│作者：水咬纸                                                                     │
+│标签：玄幻|系统|穿越|西游衍生                                                    │
+└─────────────────────────────────────────────────────────────────────────────────┘
+ ↑↓ 滚动   n p 上下章   g 跳章   m 隐蔽/普通   R 重拉目录   Esc 回书架   q 退出
 ```
+
+三步上手：
+
+```bash
+cargo build --release -p novel-tui          # 1. 编译
+./target/release/novel-tui                  # 2. 跑
+cp 某本书.epub target/release/library/      # 3. 放本地书，重启就在书架上
+```
+
+第一次跑会**自动下载内置的默认书源集合**（约 20 MB，可能要一分钟）；
+不想要就 `--offline`（本地书照样能读）。
 
 **五个屏是平级的**，同一时刻只显示一个，但谁也不在谁「里面」——
 
 ```
- 1 书架   2 搜索   3 目录   4 阅读   5 书源        夜色渐浓 · 3 章
+ 1 书架   2 搜索   3 目录   4 阅读   5 书源        你这个级别的僧人… · 846 章
 ```
 
 第二行是**标签栏**：五个屏都列出来，当前那个反显，**数字键就写在名字前面**，
@@ -42,19 +55,47 @@
 阅读页 `.novel/reader.novel` 是一份**能读的 TypeScript 文件**：
 小说正文全部在 `//` 注释里，其余是随机生成的示例代码。
 
+## 安装
+
+需要 [Rust](https://rustup.rs/)（edition 2021；开发用的是 **1.90**，没声明 MSRV）。
+Windows / macOS / Linux 都行 —— 没有平台特定代码，终端得能显示 ANSI 与 CJK 宽字符。
+
+```bash
+cargo build --release -p novel-tui     # 产物：target/release/novel-tui
+```
+
+不想编译也可以只要 `target/release/novel-tui.exe` 那一个文件 —— **没有运行时依赖**
+（QuickJS 是静态链接的）。但本地书库要放在 exe 旁边的 `library/`，所以别把它单独
+丢到 PATH 里：要么整个 `target/release/` 一起拷，要么用 `--dir` 把状态指到别处。
+
 ## 跑起来
 
 ```bash
-cargo build -p novel-tui
-
-# 直接跑：首次会自动下载内置的默认书源集合（约 20 MB，可能要一分钟）
-cargo run -p novel-tui
-# 换一份：文件路径或 URL
-cargo run -p novel-tui -- --sources 某个书源集合.json
-
-# 不加载也不下载书源，只用内置演示书库
-cargo run -p novel-tui -- --offline
+./target/release/novel-tui
 ```
+
+| 选项 | 作用 |
+|---|---|
+| `--dir DIR` | 把 `.novel/` 放在 DIR 下（默认当前目录）。不影响 `library/`，那个按 exe 走 |
+| `--sources FILE` | 指定书源文件（默认 `.novel/sources.json`）|
+| `--offline` | 不加载也不下载书源，只用内置演示书库（本地书照样在）|
+| `--dump` | 只把当前这一章的渲染结果打到 stdout 再退出（管道里用）|
+| `--script KEYS` | 不进真终端：把一串按键喂给**同一个事件循环**，把最后的界面打到 stdout |
+| `--trace` | 配合 `--script`，把每一帧都打出来 |
+| `--help` / `--version` | |
+
+`--script` 的写法：普通字符就是字符键；`{enter}` `{esc}` `{tab}` `{up}` `{down}`
+`{pgup}` `{pgdn}` `{home}` `{end}` `{bs}` `{del}` `{ctrl-c}` 这类是特殊键，
+`{wait}` / `{wait:2000}` 是等待。例：
+
+```bash
+novel-tui --script '{down}{enter}nnp'          # 打开第二本，翻两章再回一章
+novel-tui --script '{wait:8000}'               # 在线脚本基本上都得先等
+novel-tui --dump > 今天的章节.ts               # 把阅读页导出成文件
+```
+
+它不是「回放按键」的矮化版 —— `run::run()` 跑的就是真事件循环，
+测试用的也是同一个驱动台。所以卡死、丢结果、退不出去这类毛病能在测试里复现。
 
 ## 默认书源（自动下载）
 
@@ -242,7 +283,7 @@ cargo run -p novel-core --example probe -- <书源.json> smoke 斗破苍穹 30
 | 键 | 作用 |
 |---|---|
 | `↑` `↓` / `PgUp` `PgDn` / `Home` `End` | 滚动 |
-| `n` / `p` | 下一章 / 上一章（**替换**当前章，不叠栈，所以 `Esc` 永远回目录）|
+| `n` / `p` | 下一章 / 上一章（**替换**当前章，不叠历史，所以 `Esc` 永远回书架）|
 | `g` | 输入章号跳转 |
 | **`m`** | **切显示模式：普通正文 ⇄ 隐蔽（伪装成 TypeScript）** |
 | `o` | 用系统默认程序打开 `.novel/reader.novel` |
@@ -267,8 +308,7 @@ cargo run -p novel-core --example probe -- <书源.json> smoke 斗破苍穹 30
 名字和网址不能存成空的。
 
 抓取在后台线程跑，界面不会卡；加载时状态栏显示 `⟳ 搜 鬼吹灯（3/60）`。
-
-抓取在后台线程跑，界面不会卡；加载时状态栏显示 `⟳ 搜 鬼吹灯（3/10）`。
+本地书**不排任务** —— 正文就在磁盘上，翻章是同步的（少一次「加载中」闪烁）。
 
 ## JSON 书源（JSON 路径）
 
@@ -476,24 +516,34 @@ novel-tui --script '?' --trace                 # 每一帧都打出来
 
 ```
 crates/novel-core/         引擎层，与界面无关
+  src/epub.rs              本地 EPUB：container.xml → OPF → 目录 → 每章正文
   src/source.rs            legado 书源模型（字段名逐个对齐，有测试核对）
   src/rule.rs              规则引擎：平衡组切分 / 前缀 / ## 替换 / {{ }} 求值
   src/html.rs              对齐 JSoup 的 HTML 选择器引擎 + HTML→纯文本清洗
+  src/xpath.rs             真 XPath（轴/谓词按真书源里出现过的形状做，其余报错）
+  src/jsonpath.rs          JSON 路径（同上：先量再写，不按规范做全套）
+  src/js.rs                JS 环境（QuickJS）+ legado 的 java.* 宿主 API
   src/net.rs               拉页面 / 猜编码 / 相对 URL / URL 选项
   src/crawl.rs             搜索 · 详情 · 目录 · 正文 四步
   src/online.rs            把抓取包成「丢给后台线程的任务」+ 书源管理（导入/删除/编辑）
+  src/cache.rs             目录缓存 + 通用 KV（给书源变量 / JS 用）
   src/shelf.rs             书架与章节记忆（shelf.json）
   src/state.rs             状态（state.json）+ 阅读页写盘
   src/render.rs            章节 → 随机 TS，正文在 // 注释里
   src/rng.rs               确定性伪随机（种子来自书名+章节标题）
-  src/demo.rs              离线演示书库（3 本 3 源）
-  examples/probe.rs        真打站点的探针
+  src/demo.rs              离线演示书库（没有书源、书架也空时的兜底）
+  examples/probe.rs        真打站点的探针（list / search / book / toc / read / smoke）
+  tests/{json_source,xpath_source}.rs  假站点 + 真实 HTML/JSON 形状的全链路
 crates/novel-tui/          TUI
   src/app.rs               纯状态机（键位、焦点、光标、在线任务）—— 不碰终端
   src/ui.rs                绘制；render_to_text() 把一帧打成文本，供测试与预览
-  src/main.rs              选项解析 + crossterm 事件循环 + 后台 worker
+  src/run.rs               事件循环 + Workers（后台线程）+ Driver/Step（自测驱动台）
+  src/main.rs              选项解析 + crossterm 按键翻译 + 装配
+  tests/interaction.rs     跑真实事件循环的交互测试（不是直接调 app）
   tests/live.rs            真打站点的端到端（默认 ignore）
-  examples/preview.rs      无终端环境下预览界面
+  examples/preview.rs      在真实终端之外把界面画成文本（截图/贴 issue 用）
+docs/tui-interaction-design.md   五屏 × 四态 的交互规格（评审稿）
+survey_*.py                统计真书源覆盖率的小脚本
 ```
 
 `app.rs` / `ui.rs` 是 lib，`main.rs` 是 bin —— **状态机能脱离终端测**，
@@ -576,8 +626,10 @@ export const chapter: ChapterRef = {
 - **书源三字段该是一个表单。** 原来 `e`/`u`/`s` 各开一个单字段输入框，
   要记三条键位、还得改一个退出来再改下一个。现在 `Enter` 进表单，
   Tab 换字段、Enter 一起保存、Esc 取消，改过东西要先提醒一次（脏数据保护）。
-- **一屏一屏地走会迷路。** 加了面包屑画整条路径（`书架 › 搜索 “斗破” › 目录 · X`），
-  谁进来就退回谁 —— 从搜索进的目录，`Esc` 回搜索而不是回书架。
+- **一屏一屏地走会迷路。** 评审当时的建议是加面包屑 + 返回栈（从搜索进的目录，
+  `Esc` 回搜索）。**那一版后来又被推翻了** —— 用户要的是「五屏平级，独立进入」，
+  于是面包屑换成了标签栏、`Esc` 位固定回书架。现在是哪个版本，以
+  上面「按键」那一节为准。
 - **选中态不能只靠颜色。** 现在选中行有 `>` 前缀**并且**反显：反显在纯文本
   导出里看不见，而只靠颜色区分对色觉障碍用户不成立。
 
@@ -594,14 +646,15 @@ export const chapter: ChapterRef = {
 等于没有缓存。这种 bug 只有真跑一遍并去看磁盘才会发现，测试写「存了能读回来」
 才抓得住（已加 `the_cache_dir_is_not_doubled`）。
 
-实现时踩到、也修掉的自己写的 bug：加面包屑那一行时忘了把屏往下挪一格，
-五屏全被挤成 1 行高 —— 阅读屏只剩一条上边框，被测试当场抓到。
+实现时踩到、也修掉的自己写的 bug：加第二行（当时是面包屑，现在是标签栏）
+时忘了把屏往下挪一格，五屏全被挤成 1 行高 —— 阅读屏只剩一条上边框，
+被测试当场抓到。
 
 ## 测试
 
 ```bash
-cargo test                 # 265 passed
-cargo test -- --ignored    # 真打站点（3 条，会因站点状态而变红）
+cargo test                 # 274 passed / 4 ignored
+cargo test -- --ignored    # 真打站点 + 真 epub（会因站点状态而变红）
 ```
 
 - **`rule.rs` 的语料测试**：把 3907 个真实书源里 15555 条规则串全部过一遍
@@ -618,7 +671,11 @@ cargo test -- --ignored    # 真打站点（3 条，会因站点状态而变红�
 - `net.rs`：GBK/GB2312/BOM/meta 编码判定、相对 URL（含 `..`、协议相对、
   `javascript:`）、POST 体的 GBK 百分号编码
 - `app.rs`：喂键序列 → 断言状态。含在线模式（搜索顶掉书架、目录→自动拉第一章、
-  正文落到阅读页、`Done::Failed` 要显示出来）
+  正文落到阅读页、`Done::Failed` 要显示出来）与**本地 epub**（上架 → 打开 →
+  翻章 → 章节记忆，且断言全程**不排后台任务**）
+- `epub.rs`：现造一本最小 epub 做夹具（不依赖仓库里那本 3.7 MB 的真书）——
+  元信息、`nav`/`ncx`/`spine` 三条降级路径、目录重复条目要去重、
+  正文不能混进 `<title>`、坏文件要被跳过、越界要报错
 - `ui.rs`：用 `render_to_text()` 断言界面上确实出现了什么，
   包括**帮助浮层是不透明的**、**加载中状态栏要显示 ⟳**
 - `tests/live.rs`：真打站点，走 `Job`/`Done` 两条消息到阅读页上出现正文注释
@@ -657,8 +714,7 @@ EOF
 
 ## 路线图
 
-- [x] **P0** 独立 TUI：**一屏一屏地进**（书架→目录→阅读，Esc 逐层退回）+
-      状态落盘 + 随机渲染
+- [x] **P0** 独立 TUI：**五屏平级**（数字键直达，`Esc` 回书架）+ 状态落盘 + 随机渲染
 - [x] **P0.5** 书架管理、章节记忆、书源导入/编辑/删除、自测交互（`--script`）
 - [x] **P1** 真书源引擎：书源模型、规则引擎、JSoup 选择器、编码、抓取链路、
       后台任务 —— 实测能读真站点
@@ -667,11 +723,12 @@ EOF
 - [x] **P1.6** XPath（`/`、`//`、`@xpath:`）—— 解锁 **223 个源**
 - [x] **P1.7** JSON 路径（`$.`、`@json:`、裸键名）—— 解锁 **494 个源**
 - [ ] **P1.8** `java.aesBase64DecodeToString` 之类（AES 要引 `aes`+`cbc`），约 44 处
-- [x] **P1.8** 默认书源 URL 内置 + 首次启动自动下载（下完可删/加/改）
-- [x] **P1.9** **本地 EPUB**：exe 旁边 `library/` 里的 epub 直接上架、离线可读
+- [x] **P1.9** 默认书源 URL 内置 + 首次启动自动下载（下完可删/加/改）
+- [x] **P2.0** **本地 EPUB**：exe 旁边 `library/` 里的 epub 直接上架、离线可读
 - [ ] **P2** 进度换 SQLite、多本共存
 - [x] **P2.5** 交互规格评审（`docs/tui-interaction-design.md`）：修掉全局键
-      抢文本输入的 bug、加面包屑、书源筛选、三字段编辑表单
+      抢文本输入的 bug、加书源筛选、三字段编辑表单（评审建议的面包屑
+      后来被「五屏平级」取代）
 - [x] **P2.6** 目录缓存（`.novel/toc/` + 7 天 TTL + `R` 强制刷新）
 - [x] **P2.7** 搜索**翻页**（原来只抓第 1 页再截 20 条，站点有几百条也只给 20 条）
       + 搜索结果**增量返回**（先到的先能点，不用干等二十秒）
@@ -685,6 +742,30 @@ EOF
 1. 分页循环加 `max_pages` 上限（legado 只靠 URL 去重，站点返回递增 URL 就会无限抓）
 2. 下载队列落 SQLite，重启续传（legado 队列在内存，进程死了就丢）
 3. 正文缓存路径带书源规则哈希（legado 改了 `contentRule` 后仍命中脏缓存）
+
+## 已知限制
+
+* **书源失效是常态，不是 bug。** 公开书源集合大多是 2023 年前后的，站点关的关、换域名的换域名。
+  实测拿 3907 个源抓前 30 个只有 3 个能走通全链路 —— 失败清一色是站点死了/证书过期/要登录。
+* **AES 类 Java 调用不支持**（`java.aesBase64DecodeToString` 等，约 44 处）。
+  遇到会**明确报错**，不会静默返回空。
+* **不支持的能力一律报错**：多下标并集的 JSON 路径、分组 `(...)` 的 XPath、
+  `@webjs:`/WebView 登录流程都不做 —— 猜错的表现是「静静地抓到脏数据」，比报错难查得多。
+* **本地书只读 epub**（`.txt`/`.mobi`/`.azw3` 没有）；epub 里的图片、脚注、内部链接都忽略。
+* **`library/` 在 exe 旁边**，所以 `cargo clean` 会把书一起删掉；
+  `target/debug/library/` 和 `target/release/library/` 是两份。
+* **路径按当前目录解析**（`--dir` 默认 `.`）：在哪个目录跑，`state.json` / `shelf.json` /
+  `reader.novel` 就写在哪。`library/` 是唯一的例外，它按 exe 走。
+* **阅读位置只精确到章**，不记段内偏移。
+* **搜索是顺序试源**（上限 60 个源 / 20 秒预算），不是并发。
+
+## 免责声明
+
+这个项目**只做工具**：仓库里不含任何小说正文，也不内置任何书源 ——
+默认书源集合是启动时从第三方公开站点下载的，删/改/加都在你手里。
+
+书源是第三方提供的规则，指向的也是第三方站点。用它读什么、合不合法，
+取决于你所在地区的法律与那些站点的授权。请自行判断，作者不为用途负责。
 
 ## 关于 Zed
 

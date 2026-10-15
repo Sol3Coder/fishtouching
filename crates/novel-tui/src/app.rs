@@ -1950,7 +1950,10 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         make_epub(&dir);
 
-        let mut app = App::new(Session::open(dir.join("state.json"), dir.join("reader.novel")));
+        let mut app = App::new(Session::open(
+            dir.join("state.json"),
+            dir.join("reader.novel"),
+        ));
         assert!(app.online.is_none(), "本地书不需要任何书源");
 
         assert_eq!(app.load_local_library(&dir), 1, "epub 要上架");

@@ -84,7 +84,7 @@ fn title(f: &mut Frame, app: &App, area: Rect) {
     let s = app.state();
     // 标题栏显示**正在读的那本**：
     // * 在线读着的 / 本地读着的 → 抓来或拆出来的书名；
-    // * 书架上已经有书但还没打开 → 明说没有，**不要**拿演示书冒充；
+    // * 书架上有书但还没打开 → 明说没有，**不要**拿演示书冒充；
     // * 什么都没有（`--offline` 且书架空）→ 内置演示书。
     let label = if app.web_mode() && !app.book_name.is_empty() {
         format!("《{}》 {}", app.book_name, app.book_author)
@@ -96,18 +96,25 @@ fn title(f: &mut Frame, app: &App, area: Rect) {
             None => "（没有打开的书）".to_string(),
         }
     };
-    // 本地书没有「书源」这回事 —— 写「本地」而不是拿演示书源的 3/3 冒充
+    // 只有确实有「当前这一章」时才写章数和来源。
+    // 「有书但没打开」不算 —— 那里写「第 1 / 3 章 书源 3/3」是拿演示书冒充。
+    let showing = app.web_mode() || (app.online.is_none() && app.shelf.is_empty());
     let origin = if app.local.is_some() {
+        // 本地书没有「书源」这回事
         "本地".to_string()
     } else {
         format!("书源 {}/{}", app.sources_on(), app.source_len())
     };
-    let left = format!(
-        " {label}  第 {} / {} 章  {origin} ",
-        s.chapter,
-        app.toc_len(),
-    );
-    // 在读在线书时显示当前章标题，比「上次搜索了什么」有用
+    let left = if showing {
+        format!(
+            " {label}  第 {} / {} 章  {origin} ",
+            s.chapter,
+            app.toc_len()
+        )
+    } else {
+        format!(" {label} ")
+    };
+    // 在读在线书或本地书时显示当前章标题，比「上次搜索了什么」有用
     let right = if app.web_mode() {
         app.toc_title(s.chapter.saturating_sub(1))
             .map(|t| format!(" {} ", clip(t, 28)))
