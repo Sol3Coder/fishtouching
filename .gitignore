@@ -11,3 +11,12 @@
 # 抓来的书源集合（21 MB，含三方 token）—— 只用来复现覆盖率统计，
 # 测试用的是 crates/novel-core/tests/fixtures/ 里的小夹具
 /fixtures/
+
+# TomatoNovelDownloader（下 epub 用的第三方工具）的产物 —— 不是本项目的东西。
+# 本项目的本地书放 `<exe 目录>/library/`，那在 /target 下面，已经被挡住了。
+*.epub
+/TomatoNovelDownloader-*.exe
+/config.yml
+/logs/
+downloaded_chapters.jsonl
+status.json
