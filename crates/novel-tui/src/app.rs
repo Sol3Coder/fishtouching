@@ -900,6 +900,37 @@ impl App {
         self.state().mode
     }
 
+    /// 当前这一屏有东西可读吗（演示 / 在线 / 本地三条路都算）。
+    ///
+    /// 只看「有没有那一章」，**不渲染** —— 这个判断在每帧的绘制路径上。
+    /// 章号越界也算没有：刚从一本 846 章的书切回来时 `chapter` 还留着 107，
+    /// 渲染出来是一张空页，看着就跟卡死一样。
+    pub fn has_chapter(&self) -> bool {
+        let i = self.state().chapter;
+        if self.web_mode() {
+            self.chapters.get(i.saturating_sub(1)).is_some()
+        } else {
+            demo::chapter(self.state().book, i).is_some()
+        }
+    }
+
+    /// 隐蔽模式现在该不该「装成代码」。
+    ///
+    /// 只有**正在读**的时候才装。切到了别的屏、弹着输入框、开着帮助、
+    /// 或者这一章压根没正文 —— 都不装，照常画完整界面。
+    ///
+    /// 这条不是审美，是可用性：隐蔽模式**只画阅读屏**（不管 `screen` 是什么），
+    /// 所以之前在书架屏按 `1`-`5`、按 `g` 跳章、看失败提示，屏幕都纹丝不动 ——
+    /// 用户看到的就是「卡死」，只能强杀进程。更坑的是 `m`（唯一的逃生键）
+    /// 只在阅读屏有效，于是连逃都逃不掉。
+    pub fn camouflaged(&self) -> bool {
+        self.state().mode == ReaderMode::Stealth
+            && self.screen == Screen::Reader
+            && self.input.is_none()
+            && !self.help
+            && self.has_chapter()
+    }
+
     /// 切换显示模式，并立刻落盘（这是个会跟人很久的偏好，不该只在内存里）。
     pub fn toggle_reader_mode(&mut self) {
         let next = match self.state().mode {
@@ -2002,6 +2033,48 @@ mod tests {
         let app = tmp("start");
         assert_eq!(app.screen, Screen::Shelf);
         assert!(!app.quit);
+    }
+
+    /// 隐蔽模式只在**正在读**的时候装成代码。
+    ///
+    /// 别的时候（切了屏 / 弹着输入框 / 没正文）都得画完整界面 ——
+    /// 否则「按 `1`-`5` 没反应」看上去就是卡死（真踩过）。
+    #[test]
+    fn stealth_only_camouflages_while_actually_reading() {
+        let mut app = tmp("camouflage");
+        app.state_mut().mode = ReaderMode::Stealth;
+
+        // 书架屏不是「正在读」
+        app.screen = Screen::Shelf;
+        assert!(
+            !app.camouflaged(),
+            "在书架屏上也装成代码的话，用户就无路可走了"
+        );
+
+        // 阅读屏 + 有正文 → 装
+        app.screen = Screen::Reader;
+        assert!(app.has_chapter(), "演示书第 1 章是有的");
+        assert!(app.camouflaged());
+
+        // 弹了输入框（`g` 跳章 / `/` 筛选）→ 不装，否则输入框看不见
+        app.input = Some((InputMode::Goto, String::new()));
+        assert!(!app.camouflaged());
+        app.input = None;
+
+        // 开着帮助 → 不装
+        app.help = true;
+        assert!(!app.camouflaged());
+        app.help = false;
+
+        // 章号是上一本（几百章）留下的，演示书没那一章 → 没东西可装
+        app.state_mut().set_chapter(107);
+        assert!(!app.has_chapter());
+        assert!(!app.camouflaged());
+
+        // 普通模式当然不装
+        app.state_mut().set_chapter(1);
+        app.state_mut().mode = ReaderMode::Normal;
+        assert!(!app.camouflaged());
     }
 
     /// 五屏**平级**：数字键直接跳，没有「进下一层」这回事。

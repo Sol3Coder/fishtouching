@@ -33,19 +33,19 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         return;
     }
 
-    // 隐蔽模式：**整屏只有那块代码**。
+    // 隐蔽模式：**正在读的时候整屏只有那块代码**。
     //
     // 标题栏（书名/作者/进度/上次搜索）、标签栏（含「夜色渐浓 · 3 章」那种
     // 补充信息）、状态栏、快捷键提示 —— 全是会出卖你的东西，一起收起来。
-    // 键位一个没变，只是不画它们（功能不受影响）。
+    // 键位一个没变，只是不画它们。
     //
-    // 代价说清楚：状态栏也藏了，所以失败信息在隐蔽模式下看不见 ——
-    // 按一下 `m` 就回来了（`self.status` 一直在，只是没画）。
-    if app.reader_mode() == ReaderMode::Stealth {
+    // 但「功能不受影响」这条优先：只要不是在读书（切了屏 / 弹着输入框 /
+    // 开着帮助 / 这一章没正文），就照常画完整界面。否则那些操作一个可见
+    // 反应都没有 —— 屏幕看上去就是死了。（真踩过：启动时 `mode` 就是
+    // Stealth，于是看到的永远是阅读屏；按 `1`-`5` 没反应、`m` 又只在阅读屏
+    // 有效，只能强杀进程。）
+    if app.camouflaged() {
         reader(f, app, area);
-        if app.help {
-            help(f, area);
-        }
         return;
     }
 
@@ -388,12 +388,17 @@ fn reader(f: &mut Frame, app: &mut App, area: Rect) {
             lines.push(Line::default());
         }
     }
-    // 隐蔽模式下没有正文时，那份 TS 里只有头注释 —— 别拿它冒充正文
+    // 没有正文时别拿那份 TS 的头注释冒充正文。
     if lines.is_empty() || (paragraphs.is_empty() && !hiding) {
-        lines = vec![Line::from(Span::styled(
-            "（这一章没有正文 —— 可能还在加载，或者书源的正文规则失效了）",
-            Style::new().fg(FAINT),
-        ))];
+        // 分两种：一种是真的「抓不到正文」，一种是「压根没打开书」
+        // （章号是上一本书带过来的）。把第二种说成「书源规则失效」会把人
+        // 往错的方向带，而且没给出路。
+        let msg = if app.has_chapter() {
+            "（这一章没有正文 —— 可能还在加载，或者书源的正文规则失效了）"
+        } else {
+            "（还没有打开的书 —— 按 1 回书架，Enter 打开一本）"
+        };
+        lines = vec![Line::from(Span::styled(msg, Style::new().fg(FAINT)))];
     }
 
     // 滚动夹取：`End` 用的是 u16::MAX，这里收到实际能滚到的位置
@@ -928,6 +933,43 @@ mod tests {
             out.contains("正文") || out.contains("//") || out.contains("推开门"),
             "{out}"
         );
+    }
+
+    /// 隐蔽模式不该在别的屏上把界面藏掉 —— 那样按 `1`-`5` 全都没反应，
+    /// 用户看到的只是一张静止的空页。（真踩过：只能强杀进程。）
+    #[test]
+    fn stealth_does_not_hide_the_other_screens() {
+        let mut app = tmp_app("stealth-shelf");
+        app.session.state.mode = ReaderMode::Stealth;
+        app.screen = Screen::Shelf;
+        let out = render_to_text(&mut app, 110, 30);
+        assert!(
+            out.contains("1 书架"),
+            "书架屏要照常画（含标签栏）：\n{out}"
+        );
+        assert!(out.contains("移出书架"), "快捷键提示也要在：\n{out}");
+        assert!(
+            !out.contains("reader.novel"),
+            "没在读书就不该装成代码：\n{out}"
+        );
+
+        // 阅读屏 + 有正文 → 还是会装
+        app.screen = Screen::Reader;
+        let out = render_to_text(&mut app, 110, 30);
+        assert!(out.contains("reader.novel"), "读书时才装：\n{out}");
+        assert!(!out.contains("1 书架"), "读书时标签栏要藏起来：\n{out}");
+    }
+
+    /// 没有「当前这一章」时说清楚怎么出去，别怪到书源头上。
+    #[test]
+    fn the_empty_reader_points_at_the_way_out() {
+        let mut app = tmp_app("empty-reader");
+        app.screen = Screen::Reader;
+        app.session.state.chapter = 107; // 演示书只有 3 章
+        let out = render_to_text(&mut app, 110, 30);
+        assert!(out.contains("还没有打开的书"), "{out}");
+        assert!(out.contains("按 1 回书架"), "要说清出路：\n{out}");
+        assert!(!out.contains("正文规则失效"), "没打开书就别怪书源：\n{out}");
     }
 
     #[test]

@@ -253,9 +253,20 @@ fn stealth_mode_hides_all_the_chrome_but_keeps_the_keys_working() {
     let before = app.state().chapter;
     let (app2, _) = run_script("stealth-chrome2", "{enter}{enter}{m}{n}", false);
     assert_eq!(app2.state().chapter, before + 1, "`n` 照样翻章");
-    // `3` 照样跳屏
-    let (app3, _) = run_script("stealth-chrome3", "{3}", false);
+    // `3` 照样跳屏 —— 而且**屏幕上看得见**。
+    //
+    // 原来这里只断言 `app3.screen == Screen::Toc`，于是一个真 bug 溜过去了：
+    // 隐蔽模式下**不管 `screen` 是什么都只画阅读屏**，所以按 `3` 屏幕纹丝不动，
+    // `m`（唯一的逃生键）又只在阅读屏有效 —— 用户看到的就是卡死。
+    // 内部状态对、用户看到的是死的，这种断言谎报军情，得改看屏幕。
+    let (app3, frames3) = run_script("stealth-chrome3", "{enter}{enter}{m}{3}", false);
     assert_eq!(app3.screen, Screen::Toc);
+    let toc = frames3.last().unwrap();
+    assert!(
+        toc.contains("1 书架"),
+        "跳屏要看得见，不能还是那张代码页：
+{toc}"
+    );
     // `m` 切回普通模式，chrome 全回来
     let (app4, frames4) = run_script("stealth-chrome4", "{enter}{enter}{m}{m}", false);
     assert_eq!(app4.reader_mode(), ReaderMode::Normal);
@@ -266,6 +277,37 @@ fn stealth_mode_hides_all_the_chrome_but_keeps_the_keys_working() {
 {normal}"
     );
     assert!(normal.contains("Esc 回书架"), "快捷键提示也回来");
+}
+
+/// 真踩过的坑：`state.json` 里 `mode` 是 Stealth、`chapter` 是上一本（846 章）
+/// 留下的 107，而这次启动什么都没打开。
+///
+/// 旧行为：隐蔽模式**只画阅读屏**、不看 `screen`，于是启动就是一张
+/// 「没有正文」的空代码页；按 `1`-`5` 没反应，`m` 又只在阅读屏有效 ——
+/// 看上去就是卡死。（实测那个进程 25 分钟只用了 1 秒 CPU，它根本没死，
+/// 是屏幕上一点反馈都没有。）
+#[test]
+fn a_stealth_state_from_another_book_cannot_lock_the_app_on_startup() {
+    let dir = tmp("stealth-lock");
+    fs::write(
+        dir.join("state.json"),
+        r#"{"book":0,"chapter":107,"query":"","mode":"Stealth"}"#,
+    )
+    .unwrap();
+    let mut app = app_in(&dir, false);
+    assert_eq!(app.reader_mode(), ReaderMode::Stealth, "状态确实是隐蔽模式");
+
+    // 启动第一帧就得是能操作的界面
+    let frames = drive_in(&mut app, vec![Step::Key(Key::Esc)]);
+    let first = frames.first().expect("应当有帧");
+    assert!(first.contains("1 书架"), "启动要看得到标签栏：\n{first}");
+    assert!(first.contains("移出书架"), "启动要看得到快捷键：\n{first}");
+    assert!(
+        !first.contains("reader.novel"),
+        "没在读书就不该装成代码：\n{first}"
+    );
+    // 而且章号被夹回来了 —— 不再是一张空页
+    assert!(app.has_chapter(), "章号越界要夹回演示书的范围内");
 }
 
 /// `q` 全局退出：哪一屏都行（搜索框里除外，那里它是文本）。

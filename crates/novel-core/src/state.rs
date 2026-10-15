@@ -160,10 +160,19 @@ impl Session {
     /// 打开（不要求文件存在）。状态文件里有东西就接着上次。
     pub fn open(state_path: impl Into<PathBuf>, reader_path: impl Into<PathBuf>) -> Self {
         let state_path = state_path.into();
-        let state = fs::read_to_string(&state_path)
+        let mut state: State = fs::read_to_string(&state_path)
             .ok()
             .and_then(|t| serde_json::from_str(&t).ok())
             .unwrap_or_default();
+        // `chapter` 常常是从上一本（在线/本地）书带过来的章号（几百章），
+        // 对只有几章的演示书是越界的 —— 不夹住阅读屏就是一张空页，
+        // 看上去跟卡死一样。
+        //
+        // 夹掉不丢东西：**阅读进度以 `shelf.json` 为准**（`open_shelf_book`
+        // 用的是书架里那个章号），`state.chapter` 只是「当前这一屏显示第几章」。
+        if state.chapter < 1 || state.chapter > state.total_chapters() {
+            state.chapter = 1;
+        }
         Self {
             state_path,
             reader_path: reader_path.into(),
@@ -359,6 +368,30 @@ mod tests {
         assert!(fs::read_to_string(&rp)
             .unwrap()
             .contains("export const chapter"));
+    }
+
+    /// 从一本 846 章的书切回来后 `state.json` 里还留着 107，而这次启动
+    /// 只跑演示书（3 章）—— 不夹住的话阅读屏就是一张空页。
+    /// 真踩过：那一张空页被当成「卡死」。
+    #[test]
+    fn a_chapter_from_another_book_falls_back_to_the_first() {
+        let (sp, rp) = tmp("foreign-chapter");
+        fs::write(
+            &sp,
+            r#"{"book":0,"chapter":107,"query":"","mode":"Stealth"}"#,
+        )
+        .unwrap();
+        let s = Session::open(&sp, &rp);
+        assert_eq!(s.state.chapter, 1, "107 在演示书上不存在，该退回第 1 章");
+        assert!(s.rendered().is_some(), "不能交给界面一张空页");
+
+        // 章号 0（字段缺失）也一样
+        fs::write(&sp, r#"{"book":0,"chapter":0}"#).unwrap();
+        assert_eq!(Session::open(&sp, &rp).state.chapter, 1);
+
+        // 但正常的章号不能被动
+        fs::write(&sp, r#"{"book":0,"chapter":3}"#).unwrap();
+        assert_eq!(Session::open(&sp, &rp).state.chapter, 3);
     }
 
     #[test]
