@@ -45,16 +45,29 @@
 ```bash
 cargo build -p novel-tui
 
-# 用书源（默认找 .novel/sources.json）
+# 直接跑：首次会自动下载内置的默认书源集合（约 20 MB，可能要一分钟）
 cargo run -p novel-tui
+# 换一份：文件路径或 URL
 cargo run -p novel-tui -- --sources 某个书源集合.json
 
-# 不带书源也能跑：内置演示书库
+# 不加载也不下载书源，只用内置演示书库
 cargo run -p novel-tui -- --offline
 ```
 
-仓库里 `.novel/sources.json` 已经放了 3 个**实测能用**的书源
-（鬼吹灯 / 抖音小说 / 77读书）。想换更多，见下面「书源」。
+## 默认书源（自动下载）
+
+`.novel/sources.json` **不存在**时，启动会自己下内置的那一份：
+
+```
+https://legado.aoaostar.com/sources/b778fe6b.json
+```
+
+下完写进 `.novel/sources.json` 就照常进界面。**之后完全归你管** ——
+书源屏里 `d` 删、`a` 导入（路径或 URL）、`Enter` 编辑，改了立刻写回这个文件。
+
+只在「文件不存在」时下载。不想每次启动都联网就让它躺着（已经有了就不会再拉）；
+想强制刷新整套，删掉 `.novel/sources.json` 再启动，或在书源屏 `a` 粘上面的 URL。
+一条都不想留就 `--offline`（`--offline` 不会触发下载）。
 
 ## 书源
 
@@ -466,7 +479,7 @@ crates/novel-tui/          TUI
 ```
 .novel/state.json     {"book":0,"chapter":2,"query":"","enabled":[true,true,true]}
 .novel/reader.novel   渲染结果（纯输出，不含状态）
-.novel/sources.json   书源（可选；没有就只用演示书库）
+.novel/sources.json   书源（不存在时自动下载内置集合；--offline 跳过）
 ```
 
 阅读页里正文长这样：
@@ -668,5 +681,6 @@ EOF
 ## 附：`fixtures/legado-sources-3907.json`
 
 从 `https://legado.aoaostar.com/sources/b778fe6b.json` 下载的完整公开书源集合
-（3907 个，21 MB）。上面那些覆盖率数字就是拿它统计出来的，也是
-`rule-corpus.txt` 的来源。**不参与测试**（太大），只是留着方便复现统计。
+（3907 个，21 MB）。**这个 URL 就是现在的内置默认源** —— 首次启动自动下它。
+上面那些覆盖率数字就是拿它统计出来的，也是 `rule-corpus.txt` 的来源。
+**不参与测试**（太大），只是留着方便复现统计。

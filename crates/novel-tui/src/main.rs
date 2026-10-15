@@ -20,6 +20,12 @@ use novel_tui::ui;
 /// 书源文件默认放在状态文件旁边。
 const SOURCES_FILE: &str = ".novel/sources.json";
 
+/// 内置默认书源集合。`.novel/sources.json` 不存在时自动拉这一份。
+///
+/// 只在「文件不存在」时下载（约 20 MB）：每次启动都拉一遍是拿 20 MB 换一个
+/// 大概率没变的集合，不划算。想手动全删就用文件里的空列表，或 `--offline`。
+const DEFAULT_SOURCES_URL: &str = "https://legado.aoaostar.com/sources/b778fe6b.json";
+
 /// 没有按键时事件循环醒来看看后台有没有结果。100ms 足够跟手，也不烧 CPU。
 const TICK: Duration = Duration::from_millis(100);
 
@@ -30,7 +36,7 @@ novel-tui —— 独立的小说阅读器（TUI）
   novel-tui --dump         只把当前这一章的渲染结果打到 stdout，然后退出
   novel-tui --dir DIR      把 .novel/ 放在 DIR 下（默认当前目录）
   novel-tui --sources FILE 指定书源文件（默认 .novel/sources.json）
-  novel-tui --offline      不加载书源，只用内置演示书库
+  novel-tui --offline      不加载书源（也不下载内置集合），只用内置演示书库
   novel-tui --script KEYS  不进真终端：把一串按键喂进去，把最后的界面打到 stdout
   novel-tui --trace        配合 --script，把每一帧都打出来
   novel-tui --help         这个帮助
@@ -170,15 +176,9 @@ fn main() -> io::Result<()> {
 
 /// 读不到书源不算错误 —— 用户可能就想看看演示书库。
 fn load_sources(path: &Path) -> Option<Online> {
-    // 没有文件不等于「没有书源功能」：给一个空集合并把路径绑好，
-    // 这样首屏按 a 粘 URL 就能导入，导入完自然就有了 `.novel/sources.json`。
-    // （返回 None 会让 `a` 永远报「没有加载书源文件」，全新安装等于死路。）
+    // 全新安装：下内置集合，下完照常进界面。
     if !path.exists() {
-        eprintln!(
-            "还没有 {} —— 在书源屏按 a 粘一个书源集合的 URL 或路径",
-            path.display()
-        );
-        return Some(Online::at(path));
+        return Some(install_default_sources(path));
     }
     match Online::load(path) {
         Ok(o) if !o.is_empty() => {
@@ -190,11 +190,44 @@ fn load_sources(path: &Path) -> Option<Online> {
             );
             Some(o)
         }
-        Ok(_) => None,
+        // 空集合也算「有书源」：否则删光最后一条之后，`a` 会永远报
+        // 「没有加载书源文件」，加不回来。（`--offline` 仍然是 None → 演示书库。）
+        Ok(o) => Some(o),
         Err(e) => {
             eprintln!("书源文件有问题：{e}");
             None
         }
+    }
+}
+
+/// 下内置书源集合，落盘到 `path`，返回**和正常启动同一条加载路径**得到的列表。
+///
+/// 失败不致命：返回空集合（路径已绑好），界面上按 `a` 还能手动导入。
+fn install_default_sources(path: &Path) -> Online {
+    let mut online = Online::at(path);
+    eprintln!(
+        "没有 {} —— 下载内置书源集合（约 20 MB，可能要一分钟）…\n{}",
+        path.display(),
+        DEFAULT_SOURCES_URL
+    );
+    if let Err(e) = online.import(DEFAULT_SOURCES_URL) {
+        eprintln!("内置书源下载失败：{e}");
+        eprintln!("书源屏按 a 手动导入；或加 --offline 只用演示书库");
+        return online;
+    }
+    // 重新走一遍 load：`import` 不滤掉停用/非文本源，直接用它会和下次启动的
+    // 列表条数对不上（2783 vs 2588），白送一个「怎么少了几百个」的疑问。
+    match Online::load(path) {
+        Ok(o) if !o.is_empty() => {
+            eprintln!(
+                "内置书源就位：{} 个（可搜索 {} 个）→ {}",
+                o.len(),
+                o.searchable(),
+                path.display()
+            );
+            o
+        }
+        _ => online,
     }
 }
 
